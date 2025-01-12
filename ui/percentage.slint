@@ -1,0 +1,96 @@
+
+import { Palette, Button } from "std-widgets.slint";
+struct PercentageData {
+  value: string,
+}
+export global PercentageTest{
+  in-out property <string> name;
+  in-out property <string> classname;
+}
+export component PercentageWindow inherits Window {
+  width: 300px;
+  height: 200px;
+  title: "Percentage Input";
+  property <string> program_title;
+  callback submit(string);
+  callback cancel();
+
+  VerticalLayout {
+      padding: 20px;
+      spacing: 20px;
+
+      Text {
+          font-italic: true;
+          font-size: 20px;
+          font-weight: 500;
+          horizontal-alignment: TextHorizontalAlignment.center;
+          text: PercentageTest.name;
+          vertical-alignment: center;
+      }
+      HorizontalLayout {
+          spacing: 10px;
+          Text {
+              font-size: 14px;
+              font-weight: 500;
+              text: "Enter percentage:";
+              vertical-alignment: center;
+          }
+          Rectangle {
+              background: #fff;
+              height: 20px;
+              width: 100px;
+              input := TextInput {
+                  selection-background-color: #fff;
+                  selection-foreground-color: #000;
+                  vertical-alignment: TextVerticalAlignment.center;
+                  width: 90px;
+                  x: 8px;
+                  color: #000;
+                  height: 20px;
+                  horizontal-alignment: TextHorizontalAlignment.right;
+                  input-type: InputType.decimal;
+              }
+          }
+      }
+
+
+      VerticalLayout {
+
+          HorizontalLayout {
+              Text {
+                  font-size: 10px;
+                  text: "Applying to windows with class:";
+                  HorizontalLayout {
+                      x: 18px;
+                      y: 114px; Rectangle { min-width: 16px; min-height: 16px; /* @lsp:ignore-node */ } }
+              }
+              Text {
+                text: PercentageTest.classname;
+              }
+          }
+      }
+      HorizontalLayout {
+          alignment: center;
+          spacing: 20px;
+
+
+
+          Button  {
+              text: "Submit";
+              width: 80px;
+              height: 30px;
+              clicked => {
+                  root.submit(input.text);
+              }
+          }
+          Button {
+              text: "Cancel";
+              width: 80px;
+              height: 30px;
+              clicked => {
+                  root.cancel();
+              }
+          }
+      }
+  }
+}
