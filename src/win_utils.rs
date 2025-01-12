@@ -1,4 +1,4 @@
-use crate::PercentageTest;
+use crate::PercentageInput;
 use crate::PercentageWindow;
 use anyhow::Error;
 use anyhow::Result;
@@ -125,7 +125,7 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
     let submit_handle = window_handle.clone();
 
     {
-        let globals = window.global::<PercentageTest>();
+        let globals = window.global::<PercentageInput>();
         globals.set_name(window_info.process_name.into());
         globals.set_classname(window_info.class_name.into());
     }

@@ -1,9 +1,7 @@
 
 import { Palette, Button } from "std-widgets.slint";
-struct PercentageData {
-  value: string,
-}
-export global PercentageTest{
+
+export global PercentageInput{
   in-out property <string> name;
   in-out property <string> classname;
 }
@@ -11,7 +9,6 @@ export component PercentageWindow inherits Window {
   width: 300px;
   height: 200px;
   title: "Percentage Input";
-  property <string> program_title;
   callback submit(string);
   callback cancel();
 
@@ -24,7 +21,7 @@ export component PercentageWindow inherits Window {
           font-size: 20px;
           font-weight: 500;
           horizontal-alignment: TextHorizontalAlignment.center;
-          text: PercentageTest.name;
+          text: PercentageInput.name;
           vertical-alignment: center;
       }
       HorizontalLayout {
@@ -52,10 +49,7 @@ export component PercentageWindow inherits Window {
               }
           }
       }
-
-
       VerticalLayout {
-
           HorizontalLayout {
               Text {
                   font-size: 10px;
@@ -65,16 +59,13 @@ export component PercentageWindow inherits Window {
                       y: 114px; Rectangle { min-width: 16px; min-height: 16px; /* @lsp:ignore-node */ } }
               }
               Text {
-                text: PercentageTest.classname;
+                text: PercentageInput.classname;
               }
           }
       }
       HorizontalLayout {
           alignment: center;
           spacing: 20px;
-
-
-
           Button  {
               text: "Submit";
               width: 80px;
