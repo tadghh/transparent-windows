@@ -1,45 +1,48 @@
-use core::time::Duration;
-use std::io::Write;
-
+use crate::PercentageTest;
+use crate::PercentageWindow;
+use anyhow::Error;
+use anyhow::Result;
+use slint::ComponentHandle;
 use slint::SharedString;
-use thread::sleep;
+use std::io::Write;
+use std::sync::mpsc;
+
 use windows::{
-    core::PWSTR,
+    core::{PCWSTR, PWSTR},
     Win32::{
-        Foundation::MAX_PATH,
+        Foundation::{COLORREF, HWND, MAX_PATH, POINT},
         System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+            PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
         },
-        UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
+        UI::{
+            Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
+            WindowsAndMessaging::{
+                FindWindowExW, FindWindowW, GetClassNameW, GetCursorPos, GetWindowLongW,
+                GetWindowThreadProcessId, SetLayeredWindowAttributes, SetWindowLongW,
+                WindowFromPoint, GWL_EXSTYLE, LAYERED_WINDOW_ATTRIBUTES_FLAGS, WS_EX_LAYERED,
+            },
+        },
     },
 };
 
-use super::*;
-
 #[derive(Debug, Clone)]
 pub struct WindowInfo {
-    pub handle: HWND,
-    pub title: String,
     pub class_name: String,
     pub process_name: String,
-    pub process_id: u32,
 }
+
 pub fn get_window_under_cursor() -> Result<WindowInfo> {
     unsafe {
-        // Load cross cursor
-        // let cursor = LoadCursorW(None, IDC_CROSS);
-        println!(" detected!");
-
         // Variable to store click position
-        let mut click_point = windows::Win32::Foundation::POINT::default();
+        let mut click_point = POINT::default();
 
         // Wait for left mouse button click
         loop {
             let key_state = GetAsyncKeyState(VK_LBUTTON.0 as i32);
             if (key_state as u16 & 0x8000) != 0 {
                 // Get cursor position immediately when click is detected
-                if !windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut click_point).is_ok()
-                {
+                if !GetCursorPos(&mut click_point).is_ok() {
                     return Err(anyhow::anyhow!("Failed to get cursor position"));
                 }
                 println!("Click detected at ({}, {})", click_point.x, click_point.y);
@@ -47,22 +50,14 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
             }
             print!("Waiting for click...\r");
             std::io::stdout().flush().unwrap();
-            sleep(Duration::from_millis(10));
         }
 
-        // Small delay to ensure click is complete
-        sleep(Duration::from_millis(50));
-
-        // Get window handle using stored click position
-        let hwnd = windows::Win32::UI::WindowsAndMessaging::WindowFromPoint(click_point);
+        let hwnd = WindowFromPoint(click_point);
         if hwnd.0 == std::ptr::null_mut() {
             return Err(anyhow::anyhow!("No window found at cursor position"));
         }
 
         // Get window title
-        let mut title = [0u16; 512];
-        let title_len = GetWindowTextW(hwnd, &mut title);
-        let window_title = String::from_utf16_lossy(&title[..title_len as usize]);
 
         // Get window class name
         let mut class_name = [0u16; 256];
@@ -76,11 +71,8 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
         // Get process name
         let process_name = get_process_name(process_id)?;
         let info = WindowInfo {
-            handle: hwnd,
-            title: window_title,
             class_name: window_class,
             process_name,
-            process_id,
         };
         println!("{:?}", info);
         Ok(info)
@@ -94,9 +86,9 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
             PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
             false,
             process_id,
-        )?;
-
-        use windows::Win32::System::Threading::PROCESS_NAME_FORMAT;
+        )
+        .ok()
+        .unwrap();
 
         let mut buffer = [0u16; MAX_PATH as usize];
         let mut size = buffer.len() as u32;
@@ -126,54 +118,105 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
     }
 }
 
-use std::sync::mpsc;
-pub fn create_percentage_window(window2: WindowInfo) -> Option<u8> {
+pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
     let (sender, receiver) = mpsc::channel();
     let window = PercentageWindow::new().unwrap();
-    window
-        .global::<PercentageTest>()
-        .set_name(window2.process_name.into());
-    window
-        .global::<PercentageTest>()
-        .set_classname(window2.class_name.into());
     let window_handle = window.as_weak();
     let submit_handle = window_handle.clone();
-    // Handle submit
+
+    {
+        let globals = window.global::<PercentageTest>();
+        globals.set_name(window_info.process_name.into());
+        globals.set_classname(window_info.class_name.into());
+    }
+
     window.on_submit(move |value: SharedString| {
         let value_string = value.to_string();
-        println!("Input received: {}", value_string);
 
         if value_string.is_empty() {
-            println!("No input to send!");
             return;
         }
 
-        // Parse the input string to a number
         if let Ok(number) = value_string.parse::<u8>() {
-            // Calculate the value as a fraction of 255
-            let result = (number as f32 / 100.0) * 255.0;
-            let value = result as u8;
-            println!("Calculated value: {}", value);
+            let value = ((number as f32 / 100.0) * 255.0) as u8;
 
-            // Send the value through the channel
             let _ = sender.send(value);
             if let Some(window) = submit_handle.upgrade() {
                 window.hide().unwrap();
+                drop(window);
             }
-        } else {
-            println!("Invalid number entered");
         }
     });
 
-    // Handle cancel
     window.on_cancel(move || {
         if let Some(window) = window_handle.upgrade() {
             window.hide().unwrap();
+            drop(window);
         }
     });
 
-    window.run().unwrap();
+    let result = {
+        window.run().unwrap();
+        receiver.recv().ok()
+    };
 
+    drop(window);
     // Receive the value from the channel after the submit
-    receiver.recv().ok()
+    result
+}
+
+pub fn get_window_hwnds(classname: String) -> Vec<HWND> {
+    let mut hwds = Vec::new();
+    unsafe {
+        let wide_class: Vec<u16> = classname.encode_utf16().chain(std::iter::once(0)).collect();
+
+        match FindWindowW(PCWSTR::from_raw(wide_class.as_ptr()), PCWSTR::null()) {
+            Ok(mut new_handle) => {
+                if !new_handle.is_invalid() {
+                    hwds.push(new_handle);
+                }
+
+                while !new_handle.is_invalid() {
+                    match FindWindowExW(
+                        None,
+                        Some(new_handle),
+                        PCWSTR::from_raw(wide_class.as_ptr()),
+                        PCWSTR::null(),
+                    ) {
+                        Ok(next_handle) => {
+                            if next_handle.is_invalid() {
+                                break;
+                            }
+                            new_handle = next_handle;
+                            hwds.push(new_handle);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+            Err(_) => (),
+        }
+    }
+    hwds
+}
+
+pub fn make_window_transparent(window_handle: HWND, transparency: &u8) -> Result<(), Error> {
+    unsafe {
+        SetWindowLongW(
+            window_handle,
+            GWL_EXSTYLE,
+            GetWindowLongW(window_handle, GWL_EXSTYLE) | WS_EX_LAYERED.0 as i32,
+        );
+
+        match SetLayeredWindowAttributes(
+            window_handle,
+            COLORREF(0),
+            *transparency,
+            LAYERED_WINDOW_ATTRIBUTES_FLAGS(2),
+        ) {
+            Ok(()) => (),
+            Err(err) => println!("{:?}", err),
+        }
+    }
+    Ok(())
 }
