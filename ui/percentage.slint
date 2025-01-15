@@ -1,87 +1,239 @@
 
-import { Palette, Button } from "std-widgets.slint";
+import { Palette, Button,ListView, VerticalBox } from "std-widgets.slint";
 
-export global PercentageInput{
-  in-out property <string> name;
-  in-out property <string> classname;
+export global PercentageInput {
+    in-out property <string> name;
+    in-out property <string> classname;
 }
+
 export component PercentageWindow inherits Window {
-  width: 300px;
-  height: 200px;
-  title: "Percentage Input";
-  callback submit(string);
-  callback cancel();
+    width: 300px;
+    height: 200px;
+    title: "Percentage Input";
+    always-on-top: true;
+    callback submit(string);
+    callback cancel();
+    VerticalLayout {
+        padding: 20px;
+        spacing: 20px;
+        Text {
+            font-italic: true;
+            font-size: 20px;
+            font-weight: 500;
+            horizontal-alignment: TextHorizontalAlignment.center;
+            text: PercentageInput.name;
+            vertical-alignment: center;
+        }
 
-  VerticalLayout {
-      padding: 20px;
-      spacing: 20px;
+        HorizontalLayout {
+            spacing: 10px;
+            Text {
+                font-size: 14px;
+                font-weight: 500;
+                text: "Enter percentage:";
+                vertical-alignment: center;
+            }
 
-      Text {
-          font-italic: true;
-          font-size: 20px;
-          font-weight: 500;
-          horizontal-alignment: TextHorizontalAlignment.center;
-          text: PercentageInput.name;
-          vertical-alignment: center;
-      }
-      HorizontalLayout {
-          spacing: 10px;
-          Text {
-              font-size: 14px;
-              font-weight: 500;
-              text: "Enter percentage:";
-              vertical-alignment: center;
-          }
-          Rectangle {
-              background: #fff;
-              height: 20px;
-              width: 100px;
-              input := TextInput {
-                  selection-background-color: #fff;
-                  selection-foreground-color: #000;
-                  vertical-alignment: TextVerticalAlignment.center;
-                  width: 90px;
-                  x: 8px;
-                  color: #000;
-                  height: 20px;
-                  horizontal-alignment: TextHorizontalAlignment.right;
-                  input-type: InputType.decimal;
-              }
-          }
-      }
-      VerticalLayout {
-          HorizontalLayout {
-              Text {
-                  font-size: 10px;
-                  text: "Applying to windows with class:";
-                  HorizontalLayout {
-                      x: 18px;
-                      y: 114px; Rectangle { min-width: 16px; min-height: 16px; /* @lsp:ignore-node */ } }
-              }
-              Text {
-                text: PercentageInput.classname;
-              }
-          }
-      }
-      HorizontalLayout {
-          alignment: center;
-          spacing: 20px;
-          Button  {
-              text: "Submit";
-              width: 80px;
-              height: 30px;
-              clicked => {
-                  root.submit(input.text);
-              }
-          }
-          Button {
-              text: "Cancel";
-              width: 80px;
-              height: 30px;
-              clicked => {
-                  root.cancel();
-              }
-          }
-      }
-  }
+            Rectangle {
+                background: #fff;
+                height: 20px;
+                width: 100px;
+                input := TextInput {
+                    selection-background-color: #fff;
+                    selection-foreground-color: #000;
+                    vertical-alignment: TextVerticalAlignment.center;
+                    width: 90px;
+                    x: 8px;
+                    color: #000;
+                    height: 20px;
+                    horizontal-alignment: TextHorizontalAlignment.right;
+                    input-type: InputType.decimal;
+                }
+            }
+        }
+
+        VerticalLayout {
+            HorizontalLayout {
+                Text {
+                    font-size: 10px;
+                    text: "Applying to windows with class:";
+                    HorizontalLayout {
+                        x: 18px;
+                        y: 114px;
+                        Rectangle {
+                            min-width: 16px;
+                            min-height: 16px; /* @lsp:ignore-node */ }
+                    }
+                }
+
+                Text {
+                    text: PercentageInput.classname;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 20px;
+            Button {
+                text: "Submit";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    root.submit(input.text);
+                }
+            }
+
+            Button {
+                text: "Cancel";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}
+
+export struct TransparencyRule {
+  process_name: string,
+  window_class: string,
+  transparency: int,
+}
+
+export global RulesStorage {
+    in-out property <[TransparencyRule]> items: [{
+        process_name: "b",
+        window_class: "a",
+        transparency: 1,
+    }];
+}
+
+component DataRow inherits Rectangle {
+    in property <string> process_name;
+    in property <string> class_name;
+    in property <int> transparency;
+    in-out property <TransparencyRule> rule: {
+        process_name: root.process_name,
+        window_class: root.class_name,
+        transparency: root.transparency
+    };
+    height: 40px;
+    callback submit(TransparencyRule);
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 10px;
+        Text {
+            text: root.process_name;
+            vertical-alignment: center;
+        }
+
+        TextInput {
+            text: root.transparency;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            input-type: InputType.decimal;
+            changed text => {
+                root.rule.transparency = (self.text.to-float());
+                root.submit(root.rule);
+            }
+        }
+    }
+}
+
+export component RulesWindow inherits Window {
+    width: 300px;
+    height: 400px;
+    always-on-top: true;
+    title: "";
+    icon: @image-url("../icons/test.jpg");
+    callback cancel();
+    callback submit(TransparencyRule);
+    VerticalLayout {
+        spacing: 2px;
+        padding: 10px;
+        Text {
+            text: "Transparency Rules";
+            font-size: 16px;
+            font-weight: 700;
+            height: 30px;
+        }
+
+        ListView {
+            for data in RulesStorage.items: DataRow {
+                process_name: data.process_name;
+                class_name: data.window_class;
+                transparency: data.transparency;
+                submit => {
+                    root.submit(self.rule)
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 20px;
+            Button {
+                text: "Cancel";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}
+
+export struct HoverInfo {
+  process_name: string,
+  class_name: string,
+}
+
+
+export component MouseInfo inherits Window {
+    width: 250px;
+    height: 100px;
+    always-on-top: true;
+    no-frame: true;
+    in property <string> process_name;
+    in property <string> class_name;
+    Rectangle {
+        border-color: #fff;
+        border-width: 2px;
+        VerticalLayout {
+            spacing: 2px;
+            padding: 5px;
+            HorizontalLayout {
+                Text {
+                    text: "Process name:";
+                    font-size: 14px;
+                    font-weight: 700;
+                    height: 30px;
+                }
+
+                Text {
+                    text: root.process_name;
+                    font-size: 16px;
+                    height: 30px;
+                }
+            }
+
+            HorizontalLayout {
+                Text {
+                    text: "Classname:";
+                    font-size: 14px;
+                    font-weight: 700;
+                    height: 30px;
+                }
+
+                Text {
+                    text: root.class_name;
+                    font-size: 16px;
+                    height: 30px;
+                }
+            }
+        }
+    }
 }

@@ -1,12 +1,10 @@
-use crate::PercentageInput;
-use crate::PercentageWindow;
-use anyhow::Error;
-use anyhow::Result;
-use slint::ComponentHandle;
-use slint::SharedString;
-use std::io::Write;
-use std::sync::mpsc;
+use crate::{MouseInfo, PercentageInput, PercentageWindow};
+use anyhow::{anyhow, Error, Result};
+use crossbeam_channel::{bounded, Receiver, Sender};
+use slint::{ComponentHandle, PhysicalPosition, SharedString};
 
+use core::time::Duration;
+use std::{sync::mpsc, thread, time::Instant};
 use windows::{
     core::{PCWSTR, PWSTR},
     Win32::{
@@ -25,70 +23,133 @@ use windows::{
         },
     },
 };
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WindowInfo {
     pub class_name: String,
     pub process_name: String,
 }
 
+const MOUSE_OFFSET: i32 = 15;
+
+/*
+  This function is called to allow the user to click on a window, the info about the window is returned.
+
+  Note: Should really try to click on the border of the window, clicking inside causes issues
+*/
 pub fn get_window_under_cursor() -> Result<WindowInfo> {
-    unsafe {
-        // Variable to store click position
+    let window = MouseInfo::new()?;
+    let handle_weak = window.as_weak();
+    let (tx, rx): (Sender<WindowInfo>, Receiver<WindowInfo>) = bounded(1);
+
+    let window_thread = thread::spawn(move || {
+        let mut last_window_info: Option<WindowInfo> = None;
         let mut click_point = POINT::default();
+        let mut last_window_check = Instant::now();
+        let window_check_interval = Duration::from_millis(50);
 
-        // Wait for left mouse button click
         loop {
-            let key_state = GetAsyncKeyState(VK_LBUTTON.0 as i32);
-            if (key_state as u16 & 0x8000) != 0 {
-                // Get cursor position immediately when click is detected
-                if !GetCursorPos(&mut click_point).is_ok() {
-                    return Err(anyhow::anyhow!("Failed to get cursor position"));
+            unsafe {
+                let now = Instant::now();
+                if now.duration_since(last_window_check) >= window_check_interval {
+                    last_window_check = now;
+
+                    // Looks laggy swapping across windows
+                    if GetCursorPos(&mut click_point).is_ok() {
+                        handle_weak.upgrade_in_event_loop(move |handle| {
+                            handle.window().set_position(PhysicalPosition {
+                                x: click_point.x + MOUSE_OFFSET,
+                                y: click_point.y + MOUSE_OFFSET,
+                            });
+                        })?;
+                    }
+                    let window_info = get_window_info(click_point)?;
+                    handle_weak.upgrade_in_event_loop(move |handle| {
+                        handle.set_class_name(window_info.class_name.into());
+                        handle.set_process_name(window_info.process_name.into());
+                    })?;
                 }
-                println!("Click detected at ({}, {})", click_point.x, click_point.y);
-                break;
+                if (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 {
+                    if GetCursorPos(&mut click_point).is_ok() {
+                        let window_io = get_window_info(click_point)?;
+                        tx.send(window_io.clone())?;
+                        last_window_info = Some(window_io);
+                        handle_weak
+                            .upgrade_in_event_loop(|handle| handle.window().hide().unwrap())?;
+                        // Back to main we go!
+                        break;
+                    }
+                    return Err(anyhow!("Failed to get cursor position"));
+                }
+
+                if GetCursorPos(&mut click_point).is_ok() {
+                    handle_weak.upgrade_in_event_loop(move |handle| {
+                        handle.window().set_position(PhysicalPosition {
+                            x: click_point.x + MOUSE_OFFSET,
+                            y: click_point.y + MOUSE_OFFSET,
+                        });
+                    })?;
+                }
             }
-            print!("Waiting for click...\r");
-            std::io::stdout().flush().unwrap();
+
+            // Smaller sleep to maintain responsiveness
+            std::thread::sleep(Duration::from_micros(125));
         }
 
-        let hwnd = WindowFromPoint(click_point);
+        handle_weak.upgrade_in_event_loop(|handle| handle.window().hide().unwrap())?;
+        Ok(last_window_info.unwrap_or_else(|| WindowInfo::default()))
+    });
+
+    window.run()?;
+
+    // Wait for window thread to clean up
+    let thread_result = window_thread
+        .join()
+        .map_err(|_| anyhow!("Window thread panicked"))?;
+
+    match rx.try_recv() {
+        Ok(window_info) => Ok(window_info),
+        Err(_) => thread_result.or_else(|_| get_window_info(POINT::default())),
+    }
+}
+
+fn get_window_info(point: POINT) -> Result<WindowInfo> {
+    unsafe {
+        let hwnd = WindowFromPoint(point);
         if hwnd.0 == std::ptr::null_mut() {
-            return Err(anyhow::anyhow!("No window found at cursor position"));
+            return Err(anyhow!("No window found at cursor position"));
         }
 
-        // Get window title
-
-        // Get window class name
         let mut class_name = [0u16; 256];
         let class_len = GetClassNameW(hwnd, &mut class_name);
         let window_class = String::from_utf16_lossy(&class_name[..class_len as usize]);
 
-        // Get process ID
         let mut process_id = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut process_id));
 
-        // Get process name
         let process_name = get_process_name(process_id)?;
-        let info = WindowInfo {
+        Ok(WindowInfo {
             class_name: window_class,
             process_name,
-        };
-        println!("{:?}", info);
-        Ok(info)
+        })
     }
 }
 
+/*
+  Gets the process name from a provided process id.
+*/
 pub fn get_process_name(process_id: u32) -> Result<String> {
     unsafe {
         // Open a handle to the process
-        let process_handle = OpenProcess(
+        let process_handle = match OpenProcess(
             PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
             false,
             process_id,
         )
         .ok()
-        .unwrap();
+        {
+            Some(handle) => handle,
+            None => return Err(anyhow!("Failed to get process handle")),
+        };
 
         let mut buffer = [0u16; MAX_PATH as usize];
         let mut size = buffer.len() as u32;
@@ -113,17 +174,37 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
 
             Ok(file_name.to_string())
         } else {
-            Err(anyhow::anyhow!("Failed to get process name"))
+            Err(anyhow!("Failed to get process name"))
         }
     }
 }
 
+/*
+  Convert a value from 1 - 100 to its u8 (255) equivalent.
+*/
+pub fn convert_to_full(value: u8) -> u8 {
+    if value > 100 {
+        return 255;
+    }
+    ((value as f32 / 100.0) * 255.0).round() as u8
+}
+
+/*
+  Takes a u8 (255) value and converts it to a measureable format (a percentage of 100)
+*/
+pub fn convert_to_human(value: u8) -> u8 {
+    ((value as f32 / 255.0) * 100.0).round() as u8
+}
+
+/*
+  Creates the process selection window, this is created after the user selected the frame of a window.
+*/
 pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
     let (sender, receiver) = mpsc::channel();
     let window = PercentageWindow::new().unwrap();
     let window_handle = window.as_weak();
     let submit_handle = window_handle.clone();
-
+    let cancel_sender = sender.clone();
     {
         let globals = window.global::<PercentageInput>();
         globals.set_name(window_info.process_name.into());
@@ -138,9 +219,9 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
         }
 
         if let Ok(number) = value_string.parse::<u8>() {
-            let value = ((number as f32 / 100.0) * 255.0) as u8;
+            let value = convert_to_full(number);
 
-            let _ = sender.send(value);
+            let _ = sender.send(Some(value));
             if let Some(window) = submit_handle.upgrade() {
                 window.hide().unwrap();
                 drop(window);
@@ -151,6 +232,7 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
     window.on_cancel(move || {
         if let Some(window) = window_handle.upgrade() {
             window.hide().unwrap();
+            let _ = cancel_sender.send(None);
             drop(window);
         }
     });
@@ -160,11 +242,12 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
         receiver.recv().ok()
     };
 
-    drop(window);
-    // Receive the value from the channel after the submit
-    result
+    result?
 }
 
+/*
+  Returns all the current handles for the classname
+*/
 pub fn get_window_hwnds(classname: String) -> Vec<HWND> {
     let mut hwds = Vec::new();
     unsafe {
@@ -200,6 +283,9 @@ pub fn get_window_hwnds(classname: String) -> Vec<HWND> {
     hwds
 }
 
+/*
+  Makes the window with the provided handle transparent.
+*/
 pub fn make_window_transparent(window_handle: HWND, transparency: &u8) -> Result<(), Error> {
     unsafe {
         SetWindowLongW(
