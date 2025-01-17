@@ -230,7 +230,6 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
             let _ = sender.send(Some(value));
             if let Some(window) = submit_handle.upgrade() {
                 window.hide().unwrap();
-                drop(window);
             }
         }
     });
@@ -239,7 +238,6 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
         if let Some(window) = window_handle.upgrade() {
             window.hide().unwrap();
             cancel_sender.send(None).ok();
-            drop(window);
         }
     });
 
