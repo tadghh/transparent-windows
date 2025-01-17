@@ -20,9 +20,10 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
     let mut last_config_str = String::new();
 
     loop {
-        let config = app_state.config.read().await;
+        let config = app_state.get_config().read().await;
 
-        let current_config_str = serde_json::to_string(&config.windows).unwrap_or_default();
+        let current_config_str =
+            serde_json::to_string(&config.get_windows_non_mut().clone()).unwrap_or_default();
 
         let should_refresh_handles = window_cache.is_empty()
             || Instant::now().duration_since(last_refresh) > Duration::from_secs(1)
@@ -33,9 +34,9 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
             last_config_str = current_config_str;
         }
 
-        for (_, window_config) in config.windows.iter() {
-            let transparency = window_config.transparency;
-            let class = &window_config.window_class;
+        for (_, window_config) in config.get_windows_non_mut().iter() {
+            let transparency = window_config.get_transparency();
+            let class = window_config.get_window_class();
 
             if should_refresh_handles {
                 let handles = get_window_hwnds(class.clone())
@@ -51,7 +52,7 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
                     if transparency_cache.get(&raw_handle) != Some(&transparency) {
                         let handle = HWND(raw_handle as isize as *mut c_void);
                         if let Ok(()) = make_window_transparent(handle, &transparency) {
-                            transparency_cache.insert(raw_handle, transparency);
+                            transparency_cache.insert(raw_handle, *transparency);
                         }
                     }
                 }
@@ -74,7 +75,8 @@ pub fn create_rules_window(mut config: Config) -> Result<Config, core::fmt::Erro
     // Store the latest config in an Arc<Mutex>
     let latest_config = Arc::new(Mutex::new(None::<Config>));
 
-    let window_info: Vec<TransparencyRule> = config.windows.values().map(|w| w.into()).collect();
+    let window_info: Vec<TransparencyRule> =
+        config.get_windows().values().map(|w| w.into()).collect();
 
     window
         .global::<RulesStorage>()
@@ -94,7 +96,7 @@ pub fn create_rules_window(mut config: Config) -> Result<Config, core::fmt::Erro
             );
 
             config
-                .windows
+                .get_windows()
                 .insert(window_config.get_key(), window_config);
 
             // Store the latest config

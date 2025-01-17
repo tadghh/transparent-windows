@@ -42,6 +42,7 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
     let (tx, rx): (Sender<WindowInfo>, Receiver<WindowInfo>) = bounded(1);
 
     let window_thread = thread::spawn(move || {
+        #[allow(unused_assignments)]
         let mut last_window_info: Option<WindowInfo> = None;
         let mut click_point = POINT::default();
         let mut last_window_check = Instant::now();

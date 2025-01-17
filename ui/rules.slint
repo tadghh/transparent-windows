@@ -1,0 +1,101 @@
+
+import { Button, ListView } from "std-widgets.slint";
+
+export struct TransparencyRule {
+  process_name: string,
+  window_class: string,
+  transparency: int,
+}
+
+export global RulesStorage {
+    in-out property <[TransparencyRule]> items: [{
+        process_name: "Demo Name",
+        window_class: "DemoWindowClass",
+        transparency: 80,
+    }];
+}
+
+component DataRow inherits Rectangle {
+    in property <string> process_name;
+    in property <string> class_name;
+    in property <int> transparency;
+    in-out property <TransparencyRule> rule: {
+        process_name: root.process_name,
+        window_class: root.class_name,
+        transparency: root.transparency
+    };
+    height: 40px;
+    callback submit(TransparencyRule);
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 10px;
+        Text {
+            text: root.process_name;
+            vertical-alignment: center;
+        }
+
+        TextInput {
+            text: root.transparency;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            input-type: InputType.decimal;
+            changed text => {
+                root.rule.transparency = (self.text.to-float());
+                root.submit(root.rule);
+            }
+        }
+    }
+}
+
+export component RulesWindow inherits Window {
+    width: 300px;
+    height: 400px;
+    always-on-top: true;
+    title: "";
+    icon: @image-url("../icons/app-icon.png");
+    callback cancel();
+    callback submit(TransparencyRule);
+    VerticalLayout {
+        spacing: 2px;
+        padding: 10px;
+        Text {
+            text: "Transparency Rules";
+            font-size: 16px;
+            font-weight: 700;
+            height: 30px;
+        }
+
+        ListView {
+            for data in RulesStorage.items: DataRow {
+                process_name: data.process_name;
+                class_name: data.window_class;
+                transparency: data.transparency;
+                submit => {
+                    root.submit(self.rule)
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 20px;
+            Button {
+                text: "Cancel";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    root.cancel();
+                }
+            }
+
+            Button {
+                text: "Save";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,52 @@
+
+export struct HoverInfo {
+  process_name: string,
+  class_name: string,
+}
+
+
+export component MouseInfo inherits Window {
+    width: 250px;
+    height: 100px;
+    always-on-top: true;
+    no-frame: true;
+    in property <string> process_name;
+    in property <string> class_name;
+    Rectangle {
+        border-color: #fff;
+        border-width: 2px;
+        VerticalLayout {
+            spacing: 2px;
+            padding: 5px;
+            HorizontalLayout {
+                Text {
+                    text: "Process name:";
+                    font-size: 14px;
+                    font-weight: 700;
+                    height: 30px;
+                }
+
+                Text {
+                    text: root.process_name;
+                    font-size: 16px;
+                    height: 30px;
+                }
+            }
+
+            HorizontalLayout {
+                Text {
+                    text: "Classname:";
+                    font-size: 14px;
+                    font-weight: 700;
+                    height: 30px;
+                }
+
+                Text {
+                    text: root.class_name;
+                    font-size: 16px;
+                    height: 30px;
+                }
+            }
+        }
+    }
+}
