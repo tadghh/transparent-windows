@@ -67,6 +67,17 @@ impl WindowConfig {
     pub fn get_window_class(&self) -> &String {
         &self.window_class
     }
+    pub fn set_name(&mut self, new_process_name: String) {
+        self.process_name = new_process_name
+    }
+
+    pub fn set_transparency(&mut self, new_transparency: u8) {
+        self.transparency = new_transparency
+    }
+
+    pub fn set_window_class(&mut self, new_class_name: String) {
+        self.window_class = new_class_name
+    }
 }
 
 pub struct AppState {

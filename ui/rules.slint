@@ -65,6 +65,13 @@ export component RulesWindow inherits Window {
             height: 30px;
         }
 
+        Text {
+            text: "Changes made are live.";
+            font-size: 13px;
+            font-weight: 500;
+            height: 20px;
+        }
+
         ListView {
             for data in RulesStorage.items: DataRow {
                 process_name: data.process_name;
@@ -80,16 +87,7 @@ export component RulesWindow inherits Window {
             alignment: center;
             spacing: 20px;
             Button {
-                text: "Cancel";
-                width: 80px;
-                height: 30px;
-                clicked => {
-                    root.cancel();
-                }
-            }
-
-            Button {
-                text: "Save";
+                text: "Close";
                 width: 80px;
                 height: 30px;
                 clicked => {

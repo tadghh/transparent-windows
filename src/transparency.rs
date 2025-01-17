@@ -1,10 +1,10 @@
 use crate::{
     win_utils::{convert_to_full, get_window_hwnds, make_window_transparent},
-    AppState, Config, RulesStorage, RulesWindow, TransparencyRule, WindowConfig,
+    AppState, RulesStorage, RulesWindow, TransparencyRule,
 };
-use core::fmt::Error;
+
 use slint::{ComponentHandle, VecModel};
-use std::{collections::HashMap, os::raw::c_void, rc::Rc, sync::Arc, sync::Mutex};
+use std::{collections::HashMap, fs, os::raw::c_void, rc::Rc, sync::Arc};
 use tokio::time::{sleep, Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
@@ -68,56 +68,67 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
   Creates the rules window, this is so the user can see what rules are currently active.
   There is hardcoded minimum of 30%
 */
-pub fn create_rules_window(mut config: Config) -> Result<Config, core::fmt::Error> {
+
+pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::fmt::Error> {
     let window = RulesWindow::new().unwrap();
     let window_handle = window.as_weak();
 
-    // Store the latest config in an Arc<Mutex>
-    let latest_config = Arc::new(Mutex::new(None::<Config>));
+    let mut window_info = {
+        let config = app_state.get_config().read().await;
+        config
+            .get_windows_non_mut()
+            .values()
+            .map(|w| w.into())
+            .collect::<Vec<TransparencyRule>>()
+    };
 
-    let window_info: Vec<TransparencyRule> =
-        config.get_windows().values().map(|w| w.into()).collect();
+    // Oh boo hoo its sorted every time the rules window is opened 😢
+    window_info.sort_by_key(|rule| rule.process_name.clone());
 
     window
         .global::<RulesStorage>()
         .set_items(Rc::new(VecModel::from(window_info)).into());
 
     window.on_submit({
-        let latest_config = Arc::clone(&latest_config);
+        let app_state = Arc::clone(&app_state);
+
         move |mut value: TransparencyRule| {
             if value.transparency < MINIMUM_PERCENTAGE as i32 {
                 value.transparency = MINIMUM_PERCENTAGE as i32;
             }
 
-            let window_config = WindowConfig::new(
-                value.process_name.to_string(),
-                value.window_class.to_string(),
-                convert_to_full(value.transparency as u8),
-            );
+            // We need to spawn a new future so we can write to the config file live.
+            let app_state = Arc::clone(&app_state);
+            tokio::spawn(async move {
+                let mut config = app_state.get_config().write().await;
+                let key = &format!(
+                    "{}|{}",
+                    value.process_name.to_string(),
+                    value.window_class.to_string()
+                );
+                let new_transparency = convert_to_full(value.transparency as u8);
 
-            config
-                .get_windows()
-                .insert(window_config.get_key(), window_config);
+                config
+                    .get_windows()
+                    .get_mut(key)
+                    .expect("Okay funny guy stop messing with the config file.")
+                    .set_transparency(new_transparency);
 
-            // Store the latest config
-            if let Ok(mut latest) = latest_config.lock() {
-                *latest = Some(config.clone());
-            }
+                if let Ok(config_json) = serde_json::to_string_pretty(&*config) {
+                    if let Err(e) = fs::write(&app_state.get_config_path(), config_json) {
+                        eprintln!("Failed to write config: {}", e);
+                    }
+                }
+            });
         }
     });
 
     window.on_cancel(move || {
         if let Some(window) = window_handle.upgrade() {
             window.hide().unwrap();
-            drop(window);
         }
     });
 
     window.run().unwrap();
-
-    let result = match latest_config.lock() {
-        Ok(mut guard) => guard.take().ok_or(Error),
-        Err(_) => Err(Error),
-    };
-    result
+    Ok(())
 }

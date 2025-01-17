@@ -3046,6 +3046,7 @@ dependencies = [
  "crossbeam-channel",
  "directories",
  "embed-resource",
+ "futures",
  "serde",
  "serde_json",
  "slint",

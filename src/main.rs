@@ -10,7 +10,7 @@ mod tray;
 mod util;
 mod win_utils;
 
-use transparency::create_rules_window;
+use transparency::{create_rules_window, monitor_windows};
 use tray::setup_tray;
 use util::{AppState, Config, Message, WindowConfig};
 use win_utils::create_percentage_window;
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     let clone_state = app_state.clone();
 
     tokio::spawn(async move {
-        transparency::monitor_windows(clone_state).await;
+        monitor_windows(clone_state).await;
     });
 
     loop {
@@ -40,18 +40,9 @@ async fn main() -> Result<()> {
                     return Ok(());
                 }
                 Message::Rules => {
-                    let config = {
-                        let config_read = app_state.get_config().read().await;
-                        (*config_read).clone()
-                    };
-
-                    if let Ok(new_config) = create_rules_window(config) {
-                        let mut config_write = app_state.get_config().write().await;
-
-                        *config_write = new_config;
-                        if let Ok(config_json) = serde_json::to_string_pretty(&*config_write) {
-                            fs::write(&app_state.get_config_path(), config_json)?
-                        }
+                    let app_state = Arc::clone(&app_state);
+                    if let Err(e) = create_rules_window(app_state).await {
+                        eprintln!("Error in rules window: {}", e);
                     }
                 }
                 Message::Add => match win_utils::get_window_under_cursor() {

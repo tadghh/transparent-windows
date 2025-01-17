@@ -21,6 +21,7 @@ anyhow="1.0.95"
 crossbeam-channel = "0.5.14"
 directories="5.0.1"
 embed-resource="3.0.1"
+futures = "0.3.31"
 serde={ version="1.0.217", default-features=false, features=["derive"] }
 serde_json={ version="1.0.135", default-features=false, features=["std"] }
 slint={ version="1.9.2", default-features=false, features=[
