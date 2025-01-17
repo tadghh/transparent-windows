@@ -180,10 +180,15 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
     }
 }
 
+const MINIMUM_PERCENTAGE: i32 = 30;
+
 /*
   Convert a value from 1 - 100 to its u8 (255) equivalent.
 */
-pub fn convert_to_full(value: u8) -> u8 {
+pub fn convert_to_full(mut value: i32) -> u8 {
+    if value < MINIMUM_PERCENTAGE {
+        value = MINIMUM_PERCENTAGE;
+    }
     if value > 100 {
         return 255;
     }
@@ -220,7 +225,7 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
         }
 
         if let Ok(number) = value_string.parse::<u8>() {
-            let value = convert_to_full(number);
+            let value = convert_to_full(number.into());
 
             let _ = sender.send(Some(value));
             if let Some(window) = submit_handle.upgrade() {
@@ -233,7 +238,7 @@ pub fn create_percentage_window(window_info: WindowInfo) -> Option<u8> {
     window.on_cancel(move || {
         if let Some(window) = window_handle.upgrade() {
             window.hide().unwrap();
-            let _ = cancel_sender.send(None);
+            cancel_sender.send(None).ok();
             drop(window);
         }
     });

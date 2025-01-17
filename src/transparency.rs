@@ -8,8 +8,6 @@ use std::{collections::HashMap, fs, os::raw::c_void, rc::Rc, sync::Arc};
 use tokio::time::{sleep, Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
-const MINIMUM_PERCENTAGE: u8 = 30;
-
 /*
   Monitors the current windows specified in the config file. This is setup to target based on the window class rather than title (multiple windows open of X application...)
 */
@@ -92,11 +90,7 @@ pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::f
     window.on_submit({
         let app_state = Arc::clone(&app_state);
 
-        move |mut value: TransparencyRule| {
-            if value.transparency < MINIMUM_PERCENTAGE as i32 {
-                value.transparency = MINIMUM_PERCENTAGE as i32;
-            }
-
+        move |value: TransparencyRule| {
             // We need to spawn a new future so we can write to the config file live.
             let app_state = Arc::clone(&app_state);
             tokio::spawn(async move {
@@ -106,7 +100,7 @@ pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::f
                     value.process_name.to_string(),
                     value.window_class.to_string()
                 );
-                let new_transparency = convert_to_full(value.transparency as u8);
+                let new_transparency = convert_to_full(value.transparency);
 
                 config
                     .get_windows()
