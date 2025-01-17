@@ -12,7 +12,7 @@ mod win_utils;
 
 use transparency::{create_rules_window, monitor_windows};
 use tray::setup_tray;
-use util::{AppState, Config, Message, WindowConfig};
+use util::{AppState, Config, Message};
 use win_utils::create_percentage_window;
 
 slint::include_modules!();
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
     let (tx, mut rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =
         mpsc::unbounded_channel();
 
-    let _tray = setup_tray(tx);
+    let _tray = setup_tray(tx)?;
 
     let app_state = Arc::new(AppState::new(config, config_path));
     let clone_state = app_state.clone();
@@ -45,33 +45,14 @@ async fn main() -> Result<()> {
                         eprintln!("Error in rules window: {}", e);
                     }
                 }
-                Message::Add => match win_utils::get_window_under_cursor() {
-                    Ok(window) => match create_percentage_window(window.clone()) {
-                        Some(num) => {
-                            let window_config =
-                                WindowConfig::new(window.process_name, window.class_name, num);
-
-                            {
-                                let mut config = app_state.get_config().write().await;
-
-                                config
-                                    .get_windows()
-                                    .insert(window_config.get_key(), window_config);
-
-                                drop(config);
-                            }
-
-                            let config = app_state.get_config().read().await;
-                            if let Ok(config_json) = serde_json::to_string_pretty(&*config) {
-                                fs::write(&app_state.get_config_path(), config_json)?
-                            }
+                Message::Add => {
+                    if let Ok(window) = win_utils::get_window_under_cursor() {
+                        let app_state = Arc::clone(&app_state);
+                        if let Err(e) = create_percentage_window(window, app_state).await {
+                            eprintln!("Error in selection window: {}", e);
                         }
-                        None => println!("No percentage value rec."),
-                    },
-                    Err(err) => {
-                        println!("{:?}", err);
                     }
-                },
+                }
             },
             None => todo!(),
         }
@@ -83,9 +64,11 @@ fn load_config() -> (Config, PathBuf) {
         .expect("Failed to get project directories");
 
     let config_dir = project_dirs.config_dir();
+
     fs::create_dir_all(config_dir).ok();
 
     let config_path = config_dir.join("config.json");
+
     if config_path.exists() {
         (
             serde_json::from_str(

@@ -66,7 +66,6 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
   Creates the rules window, this is so the user can see what rules are currently active.
   There is hardcoded minimum of 30%
 */
-
 pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::fmt::Error> {
     let window = RulesWindow::new().unwrap();
     let window_handle = window.as_weak();

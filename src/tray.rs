@@ -1,31 +1,28 @@
-use tokio::sync::mpsc::UnboundedSender;
-use tray_item::{IconSource, TrayItem};
-
 use crate::util::Message;
 
-pub fn setup_tray(tx: UnboundedSender<Message>) -> TrayItem {
-    let mut tray = TrayItem::new("Rust Transparency", IconSource::Resource("app-icon")).unwrap();
+use tokio::sync::mpsc::UnboundedSender;
+use tray_item::{IconSource, TIError, TrayItem};
 
-    tray.add_label("Tray Label").unwrap();
+#[allow(unused_must_use)]
+pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
+    let mut tray = TrayItem::new("Rust Transparency", IconSource::Resource("app-icon"))?;
 
-    tray.inner_mut().add_separator().unwrap();
     let add_tx = tx.clone();
     tray.add_menu_item("Add", move || {
-        add_tx.send(Message::Add).unwrap();
-    })
-    .unwrap();
+        add_tx.send(Message::Add);
+    })?;
+
     let rules_tx = tx.clone();
     tray.add_menu_item("Rules", move || {
-        rules_tx.send(Message::Rules).unwrap();
-    })
-    .unwrap();
+        rules_tx.send(Message::Rules);
+    })?;
 
-    tray.inner_mut().add_separator().unwrap();
+    tray.inner_mut().add_separator()?;
 
     let quit_tx = tx.clone();
     tray.add_menu_item("Quit", move || {
-        quit_tx.send(Message::Quit).unwrap();
-    })
-    .unwrap();
-    tray
+        quit_tx.send(Message::Quit);
+    })?;
+
+    Ok(tray)
 }
