@@ -49,13 +49,15 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
 
             if let Some(handles) = window_cache.get(class) {
                 for &raw_handle in handles {
-                    if transparency_cache.get(&raw_handle) != Some(&transparency) && is_enabled {
-                        let handle = HWND(raw_handle as isize as *mut c_void);
+                    if is_enabled {
+                        if transparency_cache.get(&raw_handle) != Some(&transparency) {
+                            let handle = HWND(raw_handle as isize as *mut c_void);
 
-                        if let Ok(()) = make_window_transparent(handle, &transparency) {
-                            transparency_cache.insert(raw_handle, *transparency);
+                            if let Ok(()) = make_window_transparent(handle, &transparency) {
+                                transparency_cache.insert(raw_handle, *transparency);
+                            }
                         }
-                    } else if !is_enabled && last_state != is_enabled {
+                    } else if last_state != is_enabled {
                         let handle = HWND(raw_handle as isize as *mut c_void);
 
                         if let Ok(()) = make_window_transparent(handle, &(255)) {
