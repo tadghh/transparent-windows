@@ -34,8 +34,8 @@ async fn main() -> Result<()> {
     });
 
     loop {
-        match rx.recv().await {
-            Some(event) => match event {
+        if let Some(event) = rx.recv().await {
+            match event {
                 Message::Quit => {
                     return Ok(());
                 }
@@ -53,8 +53,7 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-            },
-            None => todo!(),
+            }
         }
     }
 }

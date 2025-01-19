@@ -26,6 +26,7 @@ use windows::{
         },
     },
 };
+
 #[derive(Debug, Clone, Default)]
 pub struct WindowInfo {
     pub class_name: String,
