@@ -84,7 +84,7 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
                         // Back to main we go!
                         break;
                     }
-                    return Err(anyhow!("Failed to get cursor position"));
+                    return Err(anyhow!("Failed to get cursor position."));
                 }
 
                 if GetCursorPos(&mut click_point).is_ok() {
@@ -115,7 +115,7 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
     // Wait for window thread to clean up
     let thread_result = window_thread
         .join()
-        .map_err(|_| anyhow!("Window thread panicked"))?;
+        .map_err(|_| anyhow!("Window thread panicked."))?;
 
     match rx.try_recv() {
         Ok(window_info) => Ok(window_info),
@@ -127,7 +127,7 @@ fn get_window_info(point: POINT) -> Result<WindowInfo> {
     unsafe {
         let hwnd = WindowFromPoint(point);
         if hwnd.0 == std::ptr::null_mut() {
-            return Err(anyhow!("No window found at cursor position"));
+            return Err(anyhow!("No window found at cursor position."));
         }
 
         let mut class_name = [0u16; 256];
@@ -158,7 +158,7 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
             process_id,
         ) {
             Ok(handle) => handle,
-            Err(_) => return Err(anyhow!("Failed to get process handle")),
+            Err(_) => return Err(anyhow!("Failed to get process handle.")),
         };
 
         if QueryFullProcessImageNameW(
@@ -180,7 +180,7 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
 
             Ok(file_name.to_string())
         } else {
-            Err(anyhow!("Failed to get process name"))
+            Err(anyhow!("Failed to get process name."))
         }
     }
 }
@@ -273,6 +273,7 @@ pub async fn create_percentage_window(
 */
 pub fn get_window_hwnds(classname: String) -> Vec<HWND> {
     let mut hwds = Vec::new();
+
     unsafe {
         let wide_class: Vec<u16> = classname.encode_utf16().chain(std::iter::once(0)).collect();
         let classname = PCWSTR::from_raw(wide_class.as_ptr());

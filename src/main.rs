@@ -1,8 +1,6 @@
-// #![windows_subsystem = "windows"]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use anyhow::Result;
-use directories::ProjectDirs;
-use std::{fs, path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 mod transparency;
@@ -12,7 +10,7 @@ mod win_utils;
 
 use transparency::{create_rules_window, monitor_windows};
 use tray::setup_tray;
-use util::{AppState, Config, Message};
+use util::{load_config, AppState, Message};
 use win_utils::create_percentage_window;
 
 slint::include_modules!();
@@ -55,31 +53,5 @@ async fn main() -> Result<()> {
                 }
             }
         }
-    }
-}
-
-fn load_config() -> (Config, PathBuf) {
-    let project_dirs = ProjectDirs::from("com", "windowtransparency", "wintrans")
-        .expect("Failed to get project directories");
-
-    let config_dir = project_dirs.config_dir();
-
-    fs::create_dir_all(config_dir).ok();
-
-    let config_path = config_dir.join("config.json");
-
-    if config_path.exists() {
-        (
-            serde_json::from_str(
-                &fs::read_to_string(&config_path)
-                    .ok()
-                    .expect("failed to read config"),
-            )
-            .ok()
-            .expect("Failed to read config"),
-            config_path,
-        )
-    } else {
-        (Config::new(), config_path)
     }
 }
