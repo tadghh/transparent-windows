@@ -19,7 +19,7 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
     let mut last_state = app_state.is_enabled().await;
 
     loop {
-        let config = app_state.get_config().read().await;
+        let config = app_state.get_config().await;
         let is_enabled = app_state.is_enabled().await;
 
         let current_config_str =
@@ -81,7 +81,7 @@ pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::f
     let window_handle = window.as_weak();
 
     let mut window_info = {
-        let config = app_state.get_config().read().await;
+        let config = app_state.get_config().await;
         config
             .get_windows_non_mut()
             .values()
@@ -103,7 +103,7 @@ pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::f
             // We need to spawn a new future so we can write to the config file live.
             let app_state = Arc::clone(&app_state);
             tokio::spawn(async move {
-                let mut config = app_state.get_config().write().await;
+                let mut config = app_state.get_config_mut().await;
                 let key = &format!(
                     "{}|{}",
                     value.process_name.to_string(),

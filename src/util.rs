@@ -110,7 +110,7 @@ impl WindowConfig {
 }
 
 pub struct AppState {
-    config: Arc<RwLock<Config>>,
+    pub config: Arc<RwLock<Config>>,
     config_path: PathBuf,
     enabled: Arc<RwLock<bool>>,
 }
@@ -124,10 +124,13 @@ impl AppState {
         }
     }
 
-    pub fn get_config(&self) -> &Arc<RwLock<Config>> {
-        &self.config
+    pub async fn get_config(&self) -> Config {
+        self.config.read().await.clone()
     }
 
+    pub async fn get_config_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, Config> {
+        self.config.write().await
+    }
     pub fn get_config_path(&self) -> &PathBuf {
         &self.config_path
     }

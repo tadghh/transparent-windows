@@ -240,7 +240,7 @@ pub async fn create_percentage_window(
             let app_state = Arc::clone(&app_state);
 
             tokio::spawn(async move {
-                let mut config = app_state.get_config().write().await;
+                let mut config = app_state.get_config_mut().await;
                 config
                     .get_windows()
                     .insert(window_config.get_key(), window_config);
