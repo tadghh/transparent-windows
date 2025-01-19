@@ -16,9 +16,11 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
     let mut transparency_cache: HashMap<isize, u8> = HashMap::new();
     let mut last_refresh = Instant::now();
     let mut last_config_str = String::new();
+    let mut last_state = app_state.is_enabled().await;
 
     loop {
         let config = app_state.get_config().read().await;
+        let is_enabled = app_state.is_enabled().await;
 
         let current_config_str =
             serde_json::to_string(&config.get_windows_non_mut().clone()).unwrap_or_default();
@@ -47,17 +49,23 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
 
             if let Some(handles) = window_cache.get(class) {
                 for &raw_handle in handles {
-                    if transparency_cache.get(&raw_handle) != Some(&transparency) {
+                    if transparency_cache.get(&raw_handle) != Some(&transparency) && is_enabled {
                         let handle = HWND(raw_handle as isize as *mut c_void);
+
                         if let Ok(()) = make_window_transparent(handle, &transparency) {
                             transparency_cache.insert(raw_handle, *transparency);
+                        }
+                    } else if !is_enabled && last_state != is_enabled {
+                        let handle = HWND(raw_handle as isize as *mut c_void);
+
+                        if let Ok(()) = make_window_transparent(handle, &(255)) {
+                            transparency_cache.clear();
                         }
                     }
                 }
             }
         }
-
-        drop(config);
+        last_state = is_enabled;
         sleep(Duration::from_millis(50)).await;
     }
 }

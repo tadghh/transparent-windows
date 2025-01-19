@@ -19,6 +19,18 @@ pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
 
     tray.inner_mut().add_separator()?;
 
+    let rules_tx = tx.clone();
+    tray.add_menu_item("Enable", move || {
+        rules_tx.send(Message::Enable);
+    })?;
+
+    let rules_tx = tx.clone();
+    tray.add_menu_item("Disable", move || {
+        rules_tx.send(Message::Disable);
+    })?;
+
+    tray.inner_mut().add_separator()?;
+
     let quit_tx = tx.clone();
     tray.add_menu_item("Quit", move || {
         quit_tx.send(Message::Quit);

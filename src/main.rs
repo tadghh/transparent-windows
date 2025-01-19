@@ -51,6 +51,12 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
+                Message::Enable => {
+                    app_state.set_enable_state(true).await;
+                }
+                Message::Disable => {
+                    app_state.set_enable_state(false).await;
+                }
             }
         }
     }

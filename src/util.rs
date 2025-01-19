@@ -112,6 +112,7 @@ impl WindowConfig {
 pub struct AppState {
     config: Arc<RwLock<Config>>,
     config_path: PathBuf,
+    enabled: Arc<RwLock<bool>>,
 }
 
 impl AppState {
@@ -119,6 +120,7 @@ impl AppState {
         Self {
             config: Arc::new(RwLock::new(config)),
             config_path,
+            enabled: Arc::new(RwLock::new(true)),
         }
     }
 
@@ -129,9 +131,20 @@ impl AppState {
     pub fn get_config_path(&self) -> &PathBuf {
         &self.config_path
     }
+
+    pub async fn is_enabled(&self) -> bool {
+        // Lock the RwLock to read the value
+        *self.enabled.read().await
+    }
+
+    pub async fn set_enable_state(&self, new_state: bool) {
+        *self.enabled.write().await = new_state;
+    }
 }
 pub enum Message {
     Quit,
     Add,
     Rules,
+    Enable,
+    Disable,
 }
