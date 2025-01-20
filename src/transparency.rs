@@ -120,13 +120,14 @@ pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::f
                     value.process_name.to_string(),
                     value.window_class.to_string()
                 );
-                println!("{:?}", value);
+
                 let new_transparency = convert_to_full(value.transparency);
 
                 let new_config = config
                     .get_windows()
                     .get_mut(key)
                     .expect("Okay funny guy stop messing with the config file.");
+
                 new_config.set_transparency(new_transparency);
                 new_config.set_enabled(value.enabled);
 
