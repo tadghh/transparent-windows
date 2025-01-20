@@ -12,8 +12,10 @@ use windows::Win32::Foundation::HWND;
   Monitors the current windows specified in the config file. This is setup to target based on the window class rather than title (multiple windows open of X application...)
 */
 pub async fn monitor_windows(app_state: Arc<AppState>) {
+    // These caches are used to prevent repeated/uneeded api calls. Rather crude.
     let mut window_cache: HashMap<String, Vec<isize>> = HashMap::new();
     let mut transparency_cache: HashMap<isize, u8> = HashMap::new();
+    let mut enabled_cache: HashMap<isize, bool> = HashMap::new();
     let mut last_refresh = Instant::now();
     let mut last_config_str = String::new();
     let mut last_state = app_state.is_enabled().await;
@@ -50,11 +52,19 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
             if let Some(handles) = window_cache.get(class) {
                 for &raw_handle in handles {
                     if is_enabled {
-                        if transparency_cache.get(&raw_handle) != Some(&transparency) {
-                            let handle = HWND(raw_handle as isize as *mut c_void);
-
+                        let handle = HWND(raw_handle as isize as *mut c_void);
+                        if transparency_cache.get(&raw_handle) != Some(&transparency)
+                            && *window_config.is_enabled()
+                        {
                             if let Ok(()) = make_window_transparent(handle, &transparency) {
                                 transparency_cache.insert(raw_handle, *transparency);
+                                enabled_cache.insert(raw_handle, *window_config.is_enabled());
+                            }
+                        } else if enabled_cache.get(&raw_handle) != Some(window_config.is_enabled())
+                        {
+                            if let Ok(()) = make_window_transparent(handle, &(255)) {
+                                transparency_cache.clear();
+                                enabled_cache.insert(raw_handle, *window_config.is_enabled());
                             }
                         }
                     } else if last_state != is_enabled {
@@ -62,6 +72,7 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
 
                         if let Ok(()) = make_window_transparent(handle, &(255)) {
                             transparency_cache.clear();
+                            enabled_cache.insert(raw_handle, *window_config.is_enabled());
                         }
                     }
                 }
@@ -109,13 +120,15 @@ pub async fn create_rules_window(app_state: Arc<AppState>) -> Result<(), core::f
                     value.process_name.to_string(),
                     value.window_class.to_string()
                 );
+                println!("{:?}", value);
                 let new_transparency = convert_to_full(value.transparency);
 
-                config
+                let new_config = config
                     .get_windows()
                     .get_mut(key)
-                    .expect("Okay funny guy stop messing with the config file.")
-                    .set_transparency(new_transparency);
+                    .expect("Okay funny guy stop messing with the config file.");
+                new_config.set_transparency(new_transparency);
+                new_config.set_enabled(value.enabled);
 
                 if let Ok(config_json) = serde_json::to_string_pretty(&*config) {
                     if let Err(e) = fs::write(&app_state.get_config_path(), config_json) {

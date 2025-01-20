@@ -1,43 +1,69 @@
-import { Button, ListView } from "std-widgets.slint";
+import { Button, ListView, Switch, VerticalBox } from "std-widgets.slint";
 
 export struct TransparencyRule {
   process_name: string,
   window_class: string,
   transparency: int,
+  enabled: bool,
 }
 
 export global RulesStorage {
-    in-out property <[TransparencyRule]> items: [{
-        process_name: "Demo Name",
-        window_class: "DemoWindowClass",
-        transparency: 80,
-    }];
+    in-out property <[TransparencyRule]> items: [
+        {
+            process_name: "Demo Name",
+            window_class: "DemoWindowClass",
+            transparency: 80,
+            enabled: true,
+        }
+    ];
 }
 
 component DataRow inherits Rectangle {
     in property <string> process_name;
     in property <string> class_name;
     in property <int> transparency;
+    in property <bool> enabled;
     in-out property <TransparencyRule> rule: {
         process_name: root.process_name,
         window_class: root.class_name,
-        transparency: root.transparency
+        transparency: root.transparency,
+        enabled: root.enabled
     };
-    height: 40px;
+    // height: 40px;
     callback submit(TransparencyRule);
     HorizontalLayout {
-        padding: 10px;
-        spacing: 10px;
-        Text {
-            text: root.process_name;
-            vertical-alignment: center;
+        height: 50px;
+        VerticalBox {
+            Text {
+                text: root.process_name;
+                vertical-alignment: center;
+            }
+
+            Text {
+                font-size: 10px;
+                horizontal-alignment: TextHorizontalAlignment.left;
+                text: root.class_name;
+                vertical-alignment: TextVerticalAlignment.top;
+            }
+        }
+
+        Switch {
+            text: "";
+            checked: root.enabled;
+            changed checked => {
+                root.rule.enabled = self.checked;
+                root.submit(root.rule);
+            }
         }
 
         TextInput {
             text: root.transparency;
             vertical-alignment: center;
+            font-italic: true;
             horizontal-alignment: right;
             input-type: InputType.decimal;
+            max-height: 24px;
+            max-width: 24px;
             changed text => {
                 root.rule.transparency = (self.text.to-float());
                 root.submit(root.rule);
@@ -55,8 +81,7 @@ export component RulesWindow inherits Window {
     callback cancel();
     callback submit(TransparencyRule);
     VerticalLayout {
-        spacing: 2px;
-        padding: 10px;
+        padding: 8px;
         Text {
             text: "Transparency Rules";
             font-size: 16px;
@@ -75,6 +100,7 @@ export component RulesWindow inherits Window {
             for data in RulesStorage.items: DataRow {
                 process_name: data.process_name;
                 class_name: data.window_class;
+                enabled: data.enabled;
                 transparency: data.transparency;
                 submit => {
                     root.submit(self.rule)

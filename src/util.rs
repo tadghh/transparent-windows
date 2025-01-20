@@ -59,6 +59,7 @@ pub struct WindowConfig {
     process_name: String,
     window_class: String,
     transparency: u8,
+    enabled: bool,
 }
 
 impl From<&WindowConfig> for TransparencyRule {
@@ -67,6 +68,7 @@ impl From<&WindowConfig> for TransparencyRule {
             process_name: config.process_name.clone().into(),
             window_class: config.window_class.clone().into(),
             transparency: convert_to_human(config.transparency) as i32,
+            enabled: config.enabled,
         }
     }
 }
@@ -77,6 +79,7 @@ impl WindowConfig {
             process_name,
             window_class,
             transparency,
+            enabled: true,
         }
     }
 
@@ -102,6 +105,12 @@ impl WindowConfig {
 
     pub fn set_transparency(&mut self, new_transparency: u8) {
         self.transparency = new_transparency
+    }
+    pub fn set_enabled(&mut self, new_state: bool) {
+        self.enabled = new_state
+    }
+    pub fn is_enabled(&self) -> &bool {
+        &self.enabled
     }
 
     pub fn set_window_class(&mut self, new_class_name: String) {
