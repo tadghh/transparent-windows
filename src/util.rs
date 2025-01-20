@@ -56,12 +56,25 @@ pub fn load_config() -> (Config, PathBuf) {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WindowConfig {
+    #[serde(default)]
     process_name: String,
+    #[serde(default)]
     window_class: String,
+    #[serde(default)]
     transparency: u8,
+    #[serde(default)]
     enabled: bool,
 }
-
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            process_name: String::new(),
+            window_class: String::new(),
+            transparency: 255,
+            enabled: false,
+        }
+    }
+}
 impl From<&WindowConfig> for TransparencyRule {
     fn from(config: &WindowConfig) -> Self {
         TransparencyRule {
