@@ -1,35 +1,52 @@
 [package]
-edition="2021"
-name   ="rust-transparent"
-version="1.1.0"
+authors    =["Ethan Henry"]
+description="Set the transparency of windows, for Windows!"
+edition    ="2021"
+keywords   =["transparency", "windows"]
+name       ="win_alpha"
+readme     ="readme.md"
+repository ="https://github.com/tadghh/transparent-windows"
+version    ="1.2.3"
+
+[[bin]]
+name="win_alpha"
+path="src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+[package.metadata]
+os=["windows"]
 
 [profile.release]
-codegen-units=1
-debug        =false
-incremental  =false
-lto          =true
-opt-level    =3
-panic        ="abort"
-strip        =true
+codegen-units  =1
+debug          =false
+incremental    =false
+lto            ="fat"
+opt-level      =3
+overflow-checks=false
+panic          ="abort"
+strip          =true
 
 [build-dependencies]
-embed-resource="3.0.1"
-slint-build   ="1.9.1"
+slint-build="1.9.2"
 
 [dependencies]
-anyhow="1.0.95"
+anyhow           ="1.0.95"
 crossbeam-channel="0.5.14"
-directories="5.0.1"
-embed-resource="3.0.1"
-serde={ version="1.0.217", default-features=false, features=["derive"] }
-serde_json={ version="1.0.135", default-features=false, features=["std"] }
+directories      ="5.0.1"
+rustc-hash       ="2.1.0"
+tray-item        ="0.10.0"
+
+serde     ={ version="1.0.217", default-features=false, features=["derive"] }
+serde_json={ version="1.0.137", default-features=false, features=["std"] }
+
 slint={ version="1.9.2", default-features=false, features=[
   "backend-winit",
   "compat-1-2",
   "renderer-software",
   "std",
 ] }
-tokio={ version="1.42.0", default-features=false, features=[
+
+tokio={ version="1.43.0", default-features=false, features=[
   "macros",
   "rt",
   "rt-multi-thread",
@@ -37,11 +54,17 @@ tokio={ version="1.42.0", default-features=false, features=[
   "sync",
   "time",
 ] }
-tray-item="0.10.0"
-
 windows={ version="0.59.0", default-features=false, features=[
+  "Wdk_System_SystemInformation",
   "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }

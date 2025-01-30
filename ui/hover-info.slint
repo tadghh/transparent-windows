@@ -1,15 +1,18 @@
+
 export struct HoverInfo {
-  process_name: string,
-  class_name: string,
+    process_name: string,
+    class_name: string,
 }
 
 export component MouseInfo inherits Window {
+    in property <int> opacity_error: 0;
     width: 250px;
     height: 100px;
     always-on-top: true;
     no-frame: true;
-    in property <string> process_name;
-    in property <string> class_name;
+    in property <string> process_name: "test name";
+    in property <string> error_string: "test error";
+    in property <string> class_name: "test class";
     Rectangle {
         border-color: #fff;
         border-width: 2px;
@@ -18,31 +21,60 @@ export component MouseInfo inherits Window {
             padding: 5px;
             HorizontalLayout {
                 Text {
-                    text: "Process name:";
+                    text: "Process:";
+                    vertical-alignment: TextVerticalAlignment.bottom;
                     font-size: 14px;
                     font-weight: 700;
-                    height: 30px;
+                    max-height: 14px;
+                    max-width: 60px;
                 }
 
                 Text {
                     text: root.process_name;
-                    font-size: 16px;
-                    height: 30px;
+                    vertical-alignment: TextVerticalAlignment.bottom;
+                    font-size: 12px;
+                    horizontal-alignment: TextHorizontalAlignment.right;
+                    max-height: 14px;
                 }
             }
 
             HorizontalLayout {
                 Text {
-                    text: "Classname:";
+                    text: "Class:";
+                    vertical-alignment: TextVerticalAlignment.bottom;
                     font-size: 14px;
                     font-weight: 700;
-                    height: 30px;
+                    max-height: 14px;
+                    max-width: 60px;
                 }
 
                 Text {
                     text: root.class_name;
-                    font-size: 16px;
-                    height: 30px;
+                    vertical-alignment: TextVerticalAlignment.bottom;
+                    font-size: 12px;
+                    horizontal-alignment: TextHorizontalAlignment.right;
+                    max-height: 14px;
+                }
+            }
+
+            HorizontalLayout {
+                Text {
+                    color: #ff8c00;
+                    font-weight: 700;
+                    opacity: root.opacity_error;
+                    text: "Issue:";
+                    Rectangle {
+                        min-width: 16px;
+                        min-height: 16px;
+                    }
+                }
+
+                Text {
+                    font-size: 12px;
+                    horizontal-alignment: TextHorizontalAlignment.right;
+                    opacity: root.opacity_error;
+                    text: root.error_string;
+                    vertical-alignment: TextVerticalAlignment.top;
                 }
             }
         }

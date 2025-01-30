@@ -1,39 +1,55 @@
 use crate::{
-    util::{AppState, WindowConfig},
-    MouseInfo, PercentageInput, PercentageWindow,
+    app_state::AppState, window_config::WindowConfig, MouseInfo, PercentageInput, PercentageWindow,
 };
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use core::time::Duration;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use slint::{ComponentHandle, PhysicalPosition, SharedString};
-use std::{fs, sync::Arc, thread, time::Instant};
+use std::{
+    os::raw::c_void,
+    sync::Arc,
+    thread::{self, sleep},
+    time::Instant,
+};
 use windows::{
-    core::{PCWSTR, PWSTR},
+    core::{PCSTR, PWSTR},
     Win32::{
-        Foundation::{COLORREF, HWND, MAX_PATH, POINT},
-        System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-            PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+        Foundation::{COLORREF, HANDLE, HWND, MAX_PATH, POINT},
+        Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
+        System::{
+            Registry::{
+                RegCloseKey, RegCreateKeyExA, RegDeleteValueA, RegOpenKeyExA, RegQueryValueExA,
+                RegSetValueExA, HKEY, HKEY_CURRENT_USER, KEY_ALL_ACCESS, KEY_READ,
+                REG_OPTION_NON_VOLATILE, REG_SZ,
+            },
+            Threading::{
+                GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
+                PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+            },
         },
         UI::{
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
             WindowsAndMessaging::{
-                FindWindowExW, FindWindowW, GetClassNameW, GetCursorPos, GetWindowLongW,
-                GetWindowThreadProcessId, SetLayeredWindowAttributes, SetWindowLongW,
-                WindowFromPoint, GWL_EXSTYLE, LAYERED_WINDOW_ATTRIBUTES_FLAGS, WS_EX_LAYERED,
+                GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowThreadProcessId,
+                SetLayeredWindowAttributes, SetWindowLongW, WindowFromPoint, GWL_EXSTYLE,
+                LAYERED_WINDOW_ATTRIBUTES_FLAGS, WS_EX_LAYERED,
             },
         },
     },
 };
 
-#[derive(Debug, Clone, Default)]
+const KEY_PRESSED: i16 = 0x8000u16 as i16;
+
+const MOUSE_OFFSET: i32 = 15;
+
+const MINIMUM_TRANSPARENCY: i32 = 30;
+
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct WindowInfo {
     pub class_name: String,
     pub process_name: String,
 }
-
-const MOUSE_OFFSET: i32 = 15;
 
 /*
   This function is called to allow the user to click on a window, the info about the window is returned.
@@ -46,48 +62,20 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
     let (tx, rx): (Sender<WindowInfo>, Receiver<WindowInfo>) = bounded(1);
 
     let window_thread = thread::spawn(move || {
-        #[allow(unused_assignments)]
-        let mut last_window_info: Option<WindowInfo> = None;
         let mut click_point = POINT::default();
+        let mut click_point_old = POINT::default();
         let mut last_window_check = Instant::now();
+        let mut window_info_old = WindowInfo::default();
+
         let window_check_interval = Duration::from_millis(25);
+        let is_admin = is_running_as_admin();
 
         loop {
+            let now = Instant::now();
+
             unsafe {
-                let now = Instant::now();
-                if now.duration_since(last_window_check) >= window_check_interval {
-                    last_window_check = now;
-
-                    // Looks laggy swapping across windows
-                    if GetCursorPos(&mut click_point).is_ok() {
-                        handle_weak.upgrade_in_event_loop(move |handle| {
-                            handle.window().set_position(PhysicalPosition {
-                                x: click_point.x + MOUSE_OFFSET,
-                                y: click_point.y + MOUSE_OFFSET,
-                            });
-                        })?;
-                    }
-
-                    let window_info = get_window_info(click_point)?;
-                    handle_weak.upgrade_in_event_loop(move |handle| {
-                        handle.set_class_name(window_info.class_name.into());
-                        handle.set_process_name(window_info.process_name.into());
-                    })?;
-                }
-
-                if (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 {
-                    if GetCursorPos(&mut click_point).is_ok() {
-                        let window_io = get_window_info(click_point)?;
-                        tx.send(window_io.clone())?;
-                        last_window_info = Some(window_io);
-
-                        // Back to main we go!
-                        break;
-                    }
-                    return Err(anyhow!("Failed to get cursor position."));
-                }
-
-                if GetCursorPos(&mut click_point).is_ok() {
+                if GetCursorPos(&mut click_point).is_ok() && click_point != click_point_old {
+                    click_point_old = click_point;
                     handle_weak.upgrade_in_event_loop(move |handle| {
                         handle.window().set_position(PhysicalPosition {
                             x: click_point.x + MOUSE_OFFSET,
@@ -97,8 +85,40 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
                 }
             }
 
+            if now.duration_since(last_window_check) >= window_check_interval {
+                last_window_check = now;
+
+                if let Some(window_info) = get_window_info(click_point).ok()
+                    && window_info_old != window_info
+                {
+                    window_info_old = window_info.clone();
+
+                    handle_weak.upgrade_in_event_loop(move |handle| {
+                        handle.set_class_name(window_info.class_name.into());
+                        handle.set_process_name(window_info.process_name.into());
+
+                        if is_elevated(click_point) && !is_admin {
+                            handle.set_opacity_error(1);
+                            handle.set_error_string(
+                                "Not happening, we need admin rights for this one".into(),
+                            );
+                        } else {
+                            handle.set_opacity_error(0);
+                        }
+                    })?;
+                }
+            }
+
+            if is_left_click() {
+                let window_io = get_window_info(click_point)?;
+                tx.send(window_io)?;
+
+                // Back to main we go!
+                break;
+            }
+
             // Smaller sleep to maintain responsiveness
-            std::thread::sleep(Duration::from_micros(125));
+            sleep(Duration::from_micros(125));
         }
 
         handle_weak.upgrade_in_event_loop(|handle| {
@@ -107,20 +127,26 @@ pub fn get_window_under_cursor() -> Result<WindowInfo> {
                 .hide()
                 .expect("Window cursor thread failed.")
         })?;
-        Ok(last_window_info.unwrap_or_else(|| WindowInfo::default()))
+
+        Ok::<(), anyhow::Error>(())
     });
 
     window.run()?;
 
     // Wait for window thread to clean up
-    let thread_result = window_thread
+    window_thread
         .join()
-        .map_err(|_| anyhow!("Window thread panicked."))?;
+        .map_err(|_| anyhow!("Window thread panicked."))??;
 
     match rx.try_recv() {
         Ok(window_info) => Ok(window_info),
-        Err(_) => thread_result.or_else(|_| get_window_info(POINT::default())),
+        Err(_) => Ok(WindowInfo::default()),
     }
+}
+
+#[inline]
+fn is_left_click() -> bool {
+    unsafe { (GetAsyncKeyState(VK_LBUTTON.0.into()) & KEY_PRESSED) != 0 }
 }
 
 fn get_window_info(point: POINT) -> Result<WindowInfo> {
@@ -149,50 +175,40 @@ fn get_window_info(point: POINT) -> Result<WindowInfo> {
 */
 pub fn get_process_name(process_id: u32) -> Result<String> {
     unsafe {
+        // Stack allocate buffer
         let mut buffer = [0u16; MAX_PATH as usize];
         let mut size = buffer.len() as u32;
 
-        let process_handle = match OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            process_id,
-        ) {
-            Ok(handle) => handle,
-            Err(_) => return Err(anyhow!("Failed to get process handle.")),
-        };
+        // Use ? operator for early return
+        let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
+            .map_err(|_| anyhow!("Failed to get process handle."))?;
 
-        if QueryFullProcessImageNameW(
+        // Get process name
+        QueryFullProcessImageNameW(
             process_handle,
             PROCESS_NAME_FORMAT(0),
             PWSTR(buffer.as_mut_ptr()),
             &mut size,
         )
-        .is_ok()
-        {
-            let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
-            let file_name = full_path
-                .split('\\')
-                .last()
-                .unwrap_or("")
-                .split('.')
-                .next()
-                .unwrap_or("");
+        .map_err(|_| anyhow!("Failed to get process name."))?;
 
-            Ok(file_name.to_string())
-        } else {
-            Err(anyhow!("Failed to get process name."))
-        }
+        // Extract filename without extension
+        let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
+        Ok(full_path
+            .rsplit('\\') // rsplit is slightly faster for getting last element
+            .next()
+            .and_then(|s| s.split('.').next())
+            .unwrap_or("")
+            .to_string())
     }
 }
-
-const MINIMUM_PERCENTAGE: i32 = 30;
 
 /*
   Convert a value from 1 - 100 to its u8 (255) equivalent.
 */
 pub fn convert_to_full(mut value: i32) -> u8 {
-    if value < MINIMUM_PERCENTAGE {
-        value = MINIMUM_PERCENTAGE;
+    if value < MINIMUM_TRANSPARENCY {
+        value = MINIMUM_TRANSPARENCY;
     }
     if value > 100 {
         return 255;
@@ -213,8 +229,8 @@ pub fn convert_to_human(value: u8) -> u8 {
 pub async fn create_percentage_window(
     window_info: WindowInfo,
     app_state: Arc<AppState>,
-) -> Result<(), core::fmt::Error> {
-    let window = PercentageWindow::new().unwrap();
+) -> Result<(), anyhow::Error> {
+    let window = PercentageWindow::new()?;
     let window_handle = window.as_weak();
     let submit_handle = window_handle.clone();
 
@@ -225,7 +241,7 @@ pub async fn create_percentage_window(
     }
 
     window.on_submit(move |value: SharedString| {
-        let value_string = value.to_string();
+        let value_string = value.to_owned();
 
         if value_string.is_empty() {
             return;
@@ -237,77 +253,31 @@ pub async fn create_percentage_window(
 
             let window_config =
                 WindowConfig::new(window_info.process_name, window_info.class_name, value);
+
             let app_state = Arc::clone(&app_state);
 
-            tokio::spawn(async move {
-                let mut config = app_state.get_config_mut().await;
-                config
-                    .get_windows()
-                    .insert(window_config.get_key(), window_config);
-
-                if let Ok(config_json) = serde_json::to_string_pretty(&*config) {
-                    if let Err(e) = fs::write(&app_state.get_config_path(), config_json) {
-                        eprintln!("Failed to write config: {}", e);
-                    }
-                }
-            });
+            app_state.spawn_update_config(window_config);
 
             if let Some(window) = submit_handle.upgrade() {
-                window.hide().unwrap();
+                window.hide().expect("Failed to hide percentage window.");
             }
         }
     });
 
     window.on_cancel(move || {
         if let Some(window) = window_handle.upgrade() {
-            window.hide().unwrap();
+            window.hide().expect("Failed to hide percentage window.");
         }
     });
 
-    window.run().unwrap();
+    window.run()?;
     Ok(())
-}
-
-/*
-  Returns all the current handles for the classname
-*/
-pub fn get_window_hwnds(classname: String) -> Vec<HWND> {
-    let mut hwds = Vec::new();
-
-    unsafe {
-        let wide_class: Vec<u16> = classname.encode_utf16().chain(std::iter::once(0)).collect();
-        let classname = PCWSTR::from_raw(wide_class.as_ptr());
-
-        if let Ok(mut new_handle) = FindWindowW(classname, PCWSTR::null()) {
-            if !new_handle.is_invalid() {
-                hwds.push(new_handle);
-            }
-
-            while !new_handle.is_invalid() {
-                if let Ok(next_handle) = FindWindowExW(
-                    None,
-                    Some(new_handle),
-                    PCWSTR::from_raw(wide_class.as_ptr()),
-                    PCWSTR::null(),
-                ) {
-                    if next_handle.is_invalid() {
-                        break;
-                    }
-                    new_handle = next_handle;
-                    hwds.push(new_handle);
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    hwds
 }
 
 /*
   Makes the window with the provided handle transparent.
 */
-pub fn make_window_transparent(window_handle: HWND, transparency: &u8) -> Result<(), Error> {
+pub fn make_window_transparent(window_handle: HWND, transparency: u8) -> Result<(), anyhow::Error> {
     unsafe {
         SetWindowLongW(
             window_handle,
@@ -318,7 +288,7 @@ pub fn make_window_transparent(window_handle: HWND, transparency: &u8) -> Result
         match SetLayeredWindowAttributes(
             window_handle,
             COLORREF(0),
-            *transparency,
+            transparency,
             LAYERED_WINDOW_ATTRIBUTES_FLAGS(2),
         ) {
             Ok(()) => (),
@@ -326,4 +296,146 @@ pub fn make_window_transparent(window_handle: HWND, transparency: &u8) -> Result
         }
     }
     Ok(())
+}
+
+/*
+  Returns if the window below the cursor is running as admin.
+*/
+fn is_elevated(point: POINT) -> bool {
+    let mut process_id = 0;
+    let mut elevation = TOKEN_ELEVATION::default();
+    let mut size = size_of::<TOKEN_ELEVATION>() as u32;
+    let mut token = HANDLE::default();
+
+    unsafe {
+        let hwnd = WindowFromPoint(point);
+        if hwnd.0 == std::ptr::null_mut() {
+            return false;
+        }
+
+        GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
+            .ok()
+            .unwrap();
+
+        if !OpenProcessToken(process, TOKEN_QUERY, &mut token).is_ok() {
+            return false;
+        }
+
+        GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut c_void),
+            size,
+            &mut size,
+        )
+        .ok();
+    }
+
+    elevation.TokenIsElevated != 0
+}
+
+/*
+ Check if we are running as admin.
+*/
+fn is_running_as_admin() -> bool {
+    let mut elevation = TOKEN_ELEVATION::default();
+    let mut size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+    let mut token = HANDLE::default();
+
+    unsafe {
+        if !OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok() {
+            return false;
+        }
+
+        GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut c_void),
+            size,
+            &mut size,
+        )
+        .map_or(false, |_| elevation.TokenIsElevated != 0)
+    }
+}
+
+/*
+ Enables/disables autostart.
+*/
+pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
+    let key = HKEY_CURRENT_USER;
+    let mut startup_key = HKEY::default();
+
+    let path_str = PCSTR::from_raw(b"Software\\Microsoft\\Windows\\CurrentVersion\\Run\0".as_ptr());
+    let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
+    let exe_path = std::env::current_exe()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    unsafe {
+        let _ = RegCreateKeyExA(
+            key,
+            path_str,
+            Some(0),
+            None,
+            REG_OPTION_NON_VOLATILE,
+            KEY_ALL_ACCESS,
+            None,
+            &mut startup_key,
+            None,
+        );
+
+        if current_state {
+            let _ = RegSetValueExA(
+                startup_key,
+                app_name,
+                Some(0),
+                REG_SZ,
+                Some(exe_path.as_bytes()),
+            );
+        } else {
+            let _ = RegDeleteValueA(startup_key, app_name);
+        }
+
+        let _ = RegCloseKey(startup_key);
+    }
+
+    Ok(())
+}
+
+/*
+ Returns if autostart is enabled.
+*/
+pub fn get_startup_state() -> bool {
+    let key = HKEY_CURRENT_USER;
+    let path_str = PCSTR::from_raw(b"Software\\Microsoft\\Windows\\CurrentVersion\\Run\0".as_ptr());
+    let mut startup_key = HKEY::default();
+
+    unsafe {
+        let result = RegOpenKeyExA(key, path_str, Some(0), KEY_READ, &mut startup_key);
+
+        if result.is_err() {
+            return false;
+        }
+
+        let mut buffer: Vec<u8> = Vec::with_capacity(260);
+        let mut size = buffer.len() as u32;
+        let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
+
+        buffer.resize(260, 0);
+
+        let result = RegQueryValueExA(
+            startup_key,
+            app_name,
+            None,
+            None,
+            Some(buffer.as_mut_ptr()),
+            Some(&mut size),
+        );
+
+        _ = RegCloseKey(startup_key);
+        result.is_ok()
+    }
 }

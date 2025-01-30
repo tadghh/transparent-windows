@@ -1,0 +1,80 @@
+import { Palette, Button,ListView, VerticalBox } from "std-widgets.slint";
+
+// export global PercentageInput {
+//     in-out property <string> name;
+//     in-out property <string> classname;
+// }
+export  enum Action {
+    Edit,
+  Reset,
+
+}
+
+export component ConfigWindow inherits Window {
+    width: 350px;
+    height: 200px;
+    title: "Config Issue";
+    icon: @image-url("../icons/app-icon.png");
+    always-on-top: true;
+    callback submit(Action);
+    callback cancel();
+    in-out property <Action> edit: Edit;
+    in-out property <Action> reset: Reset;
+    VerticalLayout {
+        alignment: LayoutAlignment.space-between;
+        padding: 20px;
+        VerticalLayout {
+            alignment: LayoutAlignment.stretch;
+            spacing: 5px;
+            Text {
+                horizontal-alignment: TextHorizontalAlignment.left;
+                vertical-alignment: TextVerticalAlignment.top;
+                font-size: 14px;
+                font-weight: 500;
+                stroke-style: TextStrokeStyle.outside;
+                text: "Oh dear we encountered an issue 🤓☝";
+            }
+
+            Text {
+                horizontal-alignment: TextHorizontalAlignment.left;
+                overflow: TextOverflow.clip;
+                text: "An error occured while reading from the config file. Either you open it and fix the JSON or reset the file.";
+                vertical-alignment: TextVerticalAlignment.top;
+                wrap: TextWrap.word-wrap;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 20px;
+            Button {
+                primary: true;
+                text: "Open Config";
+                width: 100px;
+                colorize-icon: false;
+                height: 30px;
+                clicked => {
+                    root.submit(edit);
+                }
+            }
+
+            Button {
+                text: "Reset Config";
+                width: 100px;
+                height: 30px;
+                clicked => {
+                    root.submit(reset);
+                }
+            }
+
+            Button {
+                text: "Done";
+                width: 60px;
+                height: 30px;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}

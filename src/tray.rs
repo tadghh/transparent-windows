@@ -1,39 +1,61 @@
+use crate::get_startup_state;
 use crate::util::Message;
-
 use tokio::sync::mpsc::UnboundedSender;
 use tray_item::{IconSource, TIError, TrayItem};
 
-#[allow(unused_must_use)]
 pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
-    let mut tray = TrayItem::new("Rust Transparency", IconSource::Resource("app-icon"))?;
+    let mut tray = TrayItem::new("WinAlpha", IconSource::Resource("APPICON"))?;
 
     let add_tx = tx.clone();
     tray.add_menu_item("Add", move || {
-        add_tx.send(Message::Add);
+        if let Err(e) = add_tx.send(Message::Add) {
+            eprintln!("Failed to send Add message: {}", e);
+        }
     })?;
 
     let rules_tx = tx.clone();
     tray.add_menu_item("Rules", move || {
-        rules_tx.send(Message::Rules);
+        if let Err(e) = rules_tx.send(Message::Rules) {
+            eprintln!("Failed to send Rules message: {}", e);
+        }
     })?;
 
     tray.inner_mut().add_separator()?;
 
-    let rules_tx = tx.clone();
+    let enable_tx = tx.clone();
     tray.add_menu_item("Enable", move || {
-        rules_tx.send(Message::Enable);
+        if let Err(e) = enable_tx.send(Message::Enable) {
+            eprintln!("Failed to send Enable message: {}", e);
+        }
     })?;
 
-    let rules_tx = tx.clone();
+    let disable_tx = tx.clone();
     tray.add_menu_item("Disable", move || {
-        rules_tx.send(Message::Disable);
+        if let Err(e) = disable_tx.send(Message::Disable) {
+            eprintln!("Failed to send Disable message: {}", e);
+        }
+    })?;
+
+    let startup_string = if get_startup_state() {
+        "Startup - True"
+    } else {
+        "Startup - False"
+    };
+
+    let startup_tx = tx.clone();
+    tray.add_menu_item(startup_string, move || {
+        if let Err(e) = startup_tx.send(Message::Startup) {
+            eprintln!("Failed to send Disable message: {}", e);
+        }
     })?;
 
     tray.inner_mut().add_separator()?;
 
     let quit_tx = tx.clone();
     tray.add_menu_item("Quit", move || {
-        quit_tx.send(Message::Quit);
+        if let Err(e) = quit_tx.send(Message::Quit) {
+            eprintln!("Failed to send Quit message: {}", e);
+        }
     })?;
 
     Ok(tray)
