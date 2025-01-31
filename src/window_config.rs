@@ -216,8 +216,12 @@ fn get_window_class_name(hwnd: HWND) -> Option<String> {
 pub fn find_parent_from_child_class(
     child_class: &str,
 ) -> windows::core::Result<Option<(HWND, String)>> {
+    println!("{:?}", child_class);
     let child_hwnd = match find_window_by_class(child_class)? {
-        Some(hwnd) => hwnd,
+        Some(hwnd) => {
+            println!("s3");
+            hwnd
+        }
         None => {
             return Ok(None);
         }

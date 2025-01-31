@@ -1,3 +1,4 @@
+use crate::window_config::WindowConfig;
 use crate::{app_state::AppState, util::Config, win_utils::make_window_transparent};
 
 use core::time::Duration;
@@ -53,6 +54,7 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
     let mut config = app_state.get_config().await;
     let mut is_enabled = app_state.is_enabled().await;
     let mut config_rx = app_state.subscribe_config_updates();
+
     let mut enabled_rx = app_state.subscribe_enabled_updates();
 
     loop {
@@ -63,6 +65,7 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
             Ok(new_config) = config_rx.recv() => {
                 config = new_config;
             }
+
             Ok(state) = enabled_rx.recv() => {
                 if state != is_enabled && is_enabled {
                     reset_windows(&mut window_cache);
@@ -139,4 +142,22 @@ fn reset_windows(window_cache: &mut HashMap<String, Vec<WindowHandleState>>) {
                 handle.update_state(255, false);
             }
         });
+}
+
+pub fn reset_config(window_config: WindowConfig) {
+    let handles = window_config.get_window_hwnds();
+    for handle in handles {
+        if make_window_transparent(HWND(handle as *mut c_void), 255).is_ok() {}
+    }
+}
+pub fn refresh_config(window_config: WindowConfig) {
+    let handles = window_config.get_window_hwnds();
+    for handle in handles {
+        if make_window_transparent(
+            HWND(handle as *mut c_void),
+            window_config.get_transparency(),
+        )
+        .is_ok()
+        {}
+    }
 }

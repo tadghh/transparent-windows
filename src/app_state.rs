@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
+use crate::monitor::{refresh_config, reset_config};
 use crate::transparency::create_rules_window;
 use crate::util::Config;
 use crate::win_utils::{self, create_percentage_window};
@@ -99,6 +100,7 @@ impl AppState {
                 Ok(class) => {
                     if let Some(info) = class {
                         window_config.set_window_class(info.1);
+                        refresh_config(window_config.clone());
                         config.get_windows().remove(&window_config.get_key());
                         window_config.set_old_classname(Some(old_class));
                     }
@@ -108,17 +110,32 @@ impl AppState {
         }
 
         if !window_config.is_wide() {
+            println!("d");
             match find_parent_from_child_class(window_config.get_window_class()) {
                 Ok(class) => {
                     if let Some(info) = class {
-                        config.get_windows().remove(&format!(
-                            "{}|{}",
-                            window_config.get_name(),
-                            info.1
-                        ));
+                        let key = &format!("{}|{}", window_config.get_name(), info.1);
+                        println!("hrere {:?}", info);
+                        if config.get_windows().contains_key(key) {
+                            println!("key yo {:?}", key);
+                            let clone_config = window_config.clone();
+                            let real_class = clone_config.get_window_class();
+                            window_config.set_window_class(info.1);
+                            reset_config(window_config.clone());
+                            // let handles = window_config.get_window_hwnds();
+                            window_config.set_window_class(real_class.to_string());
+                            // println!("handles yo {:?}", handles);
+
+                            config.get_windows().remove(key);
+                        }
+                    } else {
+                        println!("2{:?}", class);
                     }
                 }
-                Err(_) => (),
+                Err(_) => {
+                    println!("2");
+                    ()
+                }
             }
         }
 
