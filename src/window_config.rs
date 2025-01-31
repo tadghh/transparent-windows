@@ -1,7 +1,13 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use windows::core::PCWSTR;
 
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::System::ProcessStatus::GetProcessImageFileNameA;
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 use windows::Win32::{
     Foundation::{BOOL, HWND, LPARAM, MAX_PATH},
     UI::WindowsAndMessaging::{
@@ -150,8 +156,30 @@ impl WindowConfig {
         unsafe {
             if let Ok(mut hwnd) = FindWindowW(class_ptr, None) {
                 while !hwnd.is_invalid() {
-                    handles.push(std::mem::transmute(hwnd));
+                    let mut process_id = 0;
+                    GetWindowThreadProcessId(hwnd, Some(&mut process_id));
 
+                    if let Ok(process_handle) =
+                        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
+                    {
+                        let mut buffer = [0u8; 260];
+                        let len = GetProcessImageFileNameA(process_handle, &mut buffer);
+                        let _ = CloseHandle(process_handle);
+
+                        if len > 0 {
+                            let path_str =
+                                String::from_utf8_lossy(&buffer[..len as usize]).to_string();
+                            if let Some(name) = Path::new(&path_str)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|s| s.split('.').next().unwrap_or(s))
+                            {
+                                if name == self.process_name {
+                                    handles.push(std::mem::transmute(hwnd));
+                                }
+                            }
+                        }
+                    }
                     hwnd = match FindWindowExW(None, Some(hwnd), class_ptr, None) {
                         Ok(next_hwnd) if !next_hwnd.is_invalid() => next_hwnd,
                         _ => break,

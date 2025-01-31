@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
         if let Some(event) = rx.recv().await {
             match event {
                 Message::Quit => {
+                    app_state.quit().await;
                     return Ok(());
                 }
                 Message::Rules => {

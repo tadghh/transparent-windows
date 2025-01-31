@@ -1,11 +1,10 @@
 use crate::{app_state::AppState, util::Config, win_utils::make_window_transparent};
 
 use core::time::Duration;
-use std::{os::raw::c_void, sync::Arc, thread::sleep, time::Instant};
+use std::{os::raw::c_void, sync::Arc};
 
-use rustc_hash::FxHashMap;
+use std::collections::HashMap;
 use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::IsWindow};
-
 #[derive(Eq, PartialEq, Clone, Debug)]
 struct WindowHandleState {
     handle: isize,
@@ -49,47 +48,40 @@ impl WindowHandleState {
 */
 #[inline(always)]
 pub async fn monitor_windows(app_state: Arc<AppState>) {
-    let mut window_cache = FxHashMap::with_capacity_and_hasher(8, Default::default());
-
-    let refresh_interval = Duration::from_secs(1);
-    let sleep_duration = Duration::from_millis(250);
-
-    let mut last_refresh = Instant::now();
-    let mut last_state = app_state.is_enabled().await;
+    let mut window_cache = HashMap::with_capacity(8);
+    let refresh_interval = Duration::from_millis(120);
     let mut config = app_state.get_config().await;
     let mut is_enabled = app_state.is_enabled().await;
-
     let mut config_rx = app_state.subscribe_config_updates();
     let mut enabled_rx = app_state.subscribe_enabled_updates();
 
     loop {
-        if let Ok(new_config) = config_rx.try_recv() {
-            config = new_config;
-        }
-
-        if let Ok(state) = enabled_rx.try_recv() {
-            is_enabled = state;
-        }
-
-        if is_enabled {
-            let now = Instant::now();
-            if now.duration_since(last_refresh) > refresh_interval {
-                refresh_window_cache(&config, &mut window_cache);
-                last_refresh = now;
+        tokio::select! {
+            _ = app_state.shutdown.notified() => {
+                break;
             }
-
-            update_windows(&config, &mut window_cache);
-        } else if last_state != is_enabled {
-            reset_windows(&mut window_cache);
+            Ok(new_config) = config_rx.recv() => {
+                config = new_config;
+            }
+            Ok(state) = enabled_rx.recv() => {
+                if state != is_enabled && is_enabled {
+                    reset_windows(&mut window_cache);
+                }
+                is_enabled = state;
+            }
+            _ = tokio::time::sleep(refresh_interval) => {
+                if is_enabled {
+                    refresh_window_cache(&config, &mut window_cache);
+                    update_windows(&config, &mut window_cache);
+                }
+            }
+            else => break
         }
-
-        last_state = is_enabled;
-        sleep(sleep_duration);
     }
 }
 
 #[inline(always)]
-fn refresh_window_cache(config: &Config, cache: &mut FxHashMap<String, Vec<WindowHandleState>>) {
+fn refresh_window_cache(config: &Config, cache: &mut HashMap<String, Vec<WindowHandleState>>) {
     for cfg in config.get_windows_non_mut().values() {
         let handles = cfg.get_window_hwnds();
         if handles.is_empty() {
@@ -115,7 +107,7 @@ fn refresh_window_cache(config: &Config, cache: &mut FxHashMap<String, Vec<Windo
 }
 
 #[inline(always)]
-fn update_windows(config: &Config, window_cache: &mut FxHashMap<String, Vec<WindowHandleState>>) {
+fn update_windows(config: &Config, window_cache: &mut HashMap<String, Vec<WindowHandleState>>) {
     for window_config in config.get_windows_non_mut().values() {
         if let Some(handle_states) = window_cache.get_mut(&window_config.get_cache_key()) {
             let mut new_transparency = window_config.get_transparency();
@@ -138,7 +130,7 @@ fn update_windows(config: &Config, window_cache: &mut FxHashMap<String, Vec<Wind
 }
 
 #[inline(always)]
-fn reset_windows(window_cache: &mut FxHashMap<String, Vec<WindowHandleState>>) {
+fn reset_windows(window_cache: &mut HashMap<String, Vec<WindowHandleState>>) {
     window_cache
         .values_mut()
         .flat_map(|handles| handles.iter_mut())

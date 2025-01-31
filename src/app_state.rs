@@ -17,19 +17,26 @@ pub struct AppState {
     config: Arc<RwLock<Config>>,
     config_path: PathBuf,
     enabled: Arc<RwLock<bool>>,
+    pub shutdown: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
     pub fn new(config: Config, config_path: PathBuf) -> Self {
-        let (tx, _) = broadcast::channel(16);
-        let (txe, _) = broadcast::channel(16);
+        let (tx, _) = broadcast::channel(2);
+        let (txe, _) = broadcast::channel(2);
+
         Self {
             config_tx: tx,
             enabled_tx: txe,
             config: Arc::new(RwLock::new(config)),
             config_path,
             enabled: Arc::new(RwLock::new(true)),
+            shutdown: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    pub async fn quit(&self) {
+        self.shutdown.notify_waiters();
     }
 
     pub fn spawn_update_config(&self, value: WindowConfig) {
