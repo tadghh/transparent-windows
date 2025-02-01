@@ -24,6 +24,7 @@ lto            ="fat"
 opt-level      =3
 overflow-checks=false
 panic          ="abort"
+rpath          =false
 strip          =true
 
 [build-dependencies]
@@ -53,13 +54,12 @@ tokio={ version="1.43.0", default-features=false, features=[
   "sync",
   "time",
 ] }
+
 windows={ version="0.59.0", default-features=false, features=[
-  "Wdk_System_SystemInformation",
   "Win32_Foundation",
   "Win32_Security",
   "Win32_Storage_FileSystem",
   "Win32_System_Com",
-  "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_ProcessStatus",
   "Win32_System_Registry",
   "Win32_System_Threading",
@@ -67,4 +67,3 @@ windows={ version="0.59.0", default-features=false, features=[
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
-async-compat = "0.2.4"

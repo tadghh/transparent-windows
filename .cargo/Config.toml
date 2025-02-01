@@ -1,10 +1,9 @@
-# [unstable]
-# build-std         =["alloc", "core", "panic_abort", "proc_macro", "std"]
-# build-std-features=["panic_immediate_abort"]
+[unstable]
+build-std         =["alloc", "core", "panic_abort", "proc_macro", "std"]
+build-std-features=["panic_immediate_abort"]
 
-# [build]
-# rustflags=["--cfg=has_std", "-C", "panic=abort", "target-cpu=native"]
+[build]
+rustflags=["--cfg=has_std", "-C", "panic=abort", "target-cpu=native"]
 
-# [target.x86_64-pc-windows-msvc]
-# rustflags=["-C", "link-arg=/LIMIT:10240"]
-# #
+[target.x86_64-pc-windows-msvc]
+rustflags=["-C", "link-arg=/LIMIT:10240"]

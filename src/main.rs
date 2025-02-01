@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 #![feature(let_chains)]
 use anyhow::Result;
 use std::sync::Arc;
