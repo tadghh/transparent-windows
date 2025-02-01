@@ -35,19 +35,36 @@ export component PercentageWindow inherits Window {
             }
 
             Rectangle {
-                background: #fff;
+                background: #161515;
                 height: 20px;
+                y: 2.5px;
                 width: 100px;
                 input := TextInput {
-                    selection-background-color: #fff;
-                    selection-foreground-color: #000;
                     vertical-alignment: TextVerticalAlignment.center;
                     width: 90px;
-                    x: 8px;
-                    color: #000;
+                    color: #fff;
                     height: 20px;
+                    text: "95";
                     horizontal-alignment: TextHorizontalAlignment.right;
                     input-type: InputType.decimal;
+                    changed text => {
+                        if self.text.to-float() > 100 {
+                            self.text = 100;
+                        } else if self.text.to-float() < 1 {
+                            self.text = 1;
+                        }
+                    }
+                    key-pressed(event) => {
+                        if (event.text == Key.UpArrow) {
+                            self.text = self.text.to-float() + 1;
+                            accept
+                        }
+                        if (event.text == Key.DownArrow) {
+                            self.text = self.text.to-float() - 1;
+                            accept
+                        }
+                        reject
+                    }
                 }
             }
         }
@@ -55,15 +72,8 @@ export component PercentageWindow inherits Window {
         VerticalLayout {
             HorizontalLayout {
                 Text {
-                    font-size: 10px;
-                    text: "Applying to windows with class:";
-                    HorizontalLayout {
-                        x: 18px;
-                        y: 114px;
-                        Rectangle {
-                            min-width: 16px;
-                            min-height: 16px; /* @lsp:ignore-node */ }
-                    }
+                    font-size: 13px;
+                    text: "Class:";
                 }
 
                 Text {

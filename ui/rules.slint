@@ -5,7 +5,7 @@ export struct TransparencyRule {
   window_class: string,
   transparency: int,
   enabled: bool,
-  wide_catch: bool,
+  force: bool,
   old_class: string,
 }
 
@@ -16,35 +16,36 @@ export global RulesStorage {
             window_class: "DemoWindowClass",
             transparency: 80,
             enabled: true,
-            wide_catch: false,
+            force: false,
             old_class: "string",
         }
     ];
 }
 
 component DataRow inherits Rectangle {
-    in property <string> process_name;
-    in property <string> class_name;
+    in-out property <string> process_name;
+    in-out property <string> class_name;
     in-out property <int> transparency;
-    in property <bool> enabled;
-    in property <bool> wide_catch;
-    in property <string> old_class;
+    in-out property <bool> enabled;
+    in-out property <bool> force;
+    in-out property <string> old_class;
     in-out property <TransparencyRule> rule: {
         process_name: root.process_name,
         window_class: root.class_name,
         transparency: root.transparency,
         enabled: root.enabled,
-        wide_catch: root.wide_catch,
+        force: root.force,
         old_class: root.old_class
     };
     callback submit(TransparencyRule);
+    callback forceState(TransparencyRule);
     VerticalLayout {
         HorizontalLayout {
             spacing: 3px;
-            vertical-stretch: 5;
+            min-width: 60px;
             alignment: LayoutAlignment.space-between;
             VerticalLayout {
-                max-width: 80px;
+                max-width: 40px;
                 min-width: 80px;
                 Text {
                     font-size: 12px;
@@ -59,38 +60,40 @@ component DataRow inherits Rectangle {
                     overflow: TextOverflow.elide;
                     text: root.class_name;
                     vertical-alignment: TextVerticalAlignment.top;
-                    wrap: TextWrap.no-wrap;
+                    wrap: TextWrap.word-wrap;
                 }
             }
 
-            Switch {
-                text: "";
-                checked: root.enabled;
-                max-width: 50px;
-                min-width: 50px;
-                changed checked => {
-                    root.rule.enabled = self.checked;
-                    root.submit(root.rule);
+            Rectangle {
+                width: -32px;
+                Switch {
+                    text: "";
+                    checked: root.enabled;
+                    changed checked => {
+                        root.rule.enabled = self.checked;
+                        root.submit(root.rule);
+                    }
                 }
             }
 
-            Switch {
-                max-width: 70px;
-                min-width: 70px;
-                text: "";
-                checked: root.wide_catch;
-                changed checked => {
-                    root.rule.wide_catch = self.checked;
-                    root.submit(root.rule);
+            Rectangle {
+                width: -25px;
+                Switch {
+                    text: "";
+                    checked: root.force;
+                    changed checked => {
+                        root.rule.force = self.checked;
+                        root.forceState(root.rule);
+                    }
                 }
             }
 
             Rectangle {
                 background: #161515;
                 min-width: 24px;
-                min-height: 16px; /* @lsp:ignore-node */
+                min-height: 16px;
                 TextInput {
-                    selection-foreground-color: #00000000;
+                    max-width: 24px;
                     text: root.rule.transparency;
                     vertical-alignment: center;
                     font-italic: true;
@@ -101,9 +104,9 @@ component DataRow inherits Rectangle {
                         if self.text.to-float() > 100 {
                             self.text = 100;
                             root.rule.transparency = 100;
-                        } else if self.text.to-float() < 30 {
-                            self.text = 30;
-                            root.rule.transparency = 30;
+                        } else if self.text.to-float() < 1 {
+                            self.text = 1;
+                            root.rule.transparency = 1;
                         } else {
                             root.rule.transparency = (self.text.to-float());
                             self.text = root.rule.transparency;
@@ -143,20 +146,21 @@ export component RulesWindow inherits Window {
     icon: @image-url("../icons/app-icon.png");
     callback cancel();
     callback submit(TransparencyRule);
+    callback force(TransparencyRule);
     VerticalLayout {
         padding: 8px;
         Text {
-            text: "Transparency Rules";
+            text: "Rules";
             font-size: 16px;
             font-weight: 700;
-            height: 30px;
+            height: 25px;
         }
 
         Text {
             text: "Changes made are live.";
             font-size: 12px;
             font-weight: 200;
-            height: 20px;
+            height: 30px;
         }
 
         HorizontalLayout {
@@ -178,10 +182,8 @@ export component RulesWindow inherits Window {
 
             Text {
                 horizontal-alignment: TextHorizontalAlignment.right;
-                max-width: 70px;
-                min-width: 70px;
                 font-weight: 500;
-                text: "Wide Catch:";
+                text: "Force:";
             }
 
             Text {
@@ -200,11 +202,14 @@ export component RulesWindow inherits Window {
                 process_name: data.process_name;
                 class_name: data.window_class;
                 enabled: data.enabled;
-                wide_catch: data.wide_catch;
+                force: data.force;
                 old_class: data.old_class;
                 transparency: data.transparency;
                 submit => {
                     root.submit(self.rule)
+                }
+                forceState => {
+                    root.force(self.rule);
                 }
             }
         }

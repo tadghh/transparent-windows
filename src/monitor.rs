@@ -1,4 +1,3 @@
-use crate::window_config::WindowConfig;
 use crate::{app_state::AppState, util::Config, win_utils::make_window_transparent};
 
 use core::time::Duration;
@@ -42,6 +41,22 @@ impl WindowHandleState {
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
+
+    pub fn refresh_window(&mut self) {
+        if make_window_transparent(self.get_handle(), 255).is_ok() {
+            self.update_state(255, false);
+        }
+    }
+
+    pub fn update_window(&mut self, mut new_transparency: u8, enabled: bool) {
+        let real_transparency = new_transparency;
+        if enabled == false {
+            new_transparency = 255;
+        }
+        if make_window_transparent(self.get_handle(), new_transparency).is_ok() {
+            self.update_state(real_transparency, enabled);
+        }
+    }
 }
 
 /*
@@ -49,12 +64,12 @@ impl WindowHandleState {
 */
 #[inline(always)]
 pub async fn monitor_windows(app_state: Arc<AppState>) {
-    let mut window_cache = HashMap::with_capacity(8);
     let refresh_interval = Duration::from_millis(120);
+
     let mut config = app_state.get_config().await;
     let mut is_enabled = app_state.is_enabled().await;
+    let mut window_cache = HashMap::with_capacity(8);
     let mut config_rx = app_state.subscribe_config_updates();
-
     let mut enabled_rx = app_state.subscribe_enabled_updates();
 
     loop {
@@ -65,7 +80,6 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
             Ok(new_config) = config_rx.recv() => {
                 config = new_config;
             }
-
             Ok(state) = enabled_rx.recv() => {
                 if state != is_enabled && is_enabled {
                     reset_windows(&mut window_cache);
@@ -113,19 +127,14 @@ fn refresh_window_cache(config: &Config, cache: &mut HashMap<String, Vec<WindowH
 fn update_windows(config: &Config, window_cache: &mut HashMap<String, Vec<WindowHandleState>>) {
     for window_config in config.get_windows_non_mut().values() {
         if let Some(handle_states) = window_cache.get_mut(&window_config.get_cache_key()) {
-            let mut new_transparency = window_config.get_transparency();
+            let new_transparency = window_config.get_transparency();
             let new_state = window_config.is_enabled();
 
             for state in handle_states.iter_mut() {
                 if state.get_transparency() != window_config.get_transparency()
                     || state.is_enabled() != new_state
                 {
-                    if new_state == false {
-                        new_transparency = 255;
-                    }
-                    if make_window_transparent(state.get_handle(), new_transparency).is_ok() {
-                        state.update_state(window_config.get_transparency(), new_state);
-                    }
+                    state.update_window(new_transparency, new_state);
                 }
             }
         }
@@ -138,26 +147,6 @@ fn reset_windows(window_cache: &mut HashMap<String, Vec<WindowHandleState>>) {
         .values_mut()
         .flat_map(|handles| handles.iter_mut())
         .for_each(|handle| {
-            if make_window_transparent(handle.get_handle(), 255).is_ok() {
-                handle.update_state(255, false);
-            }
+            handle.refresh_window();
         });
-}
-
-pub fn reset_config(window_config: WindowConfig) {
-    let handles = window_config.get_window_hwnds();
-    for handle in handles {
-        if make_window_transparent(HWND(handle as *mut c_void), 255).is_ok() {}
-    }
-}
-pub fn refresh_config(window_config: WindowConfig) {
-    let handles = window_config.get_window_hwnds();
-    for handle in handles {
-        if make_window_transparent(
-            HWND(handle as *mut c_void),
-            window_config.get_transparency(),
-        )
-        .is_ok()
-        {}
-    }
 }

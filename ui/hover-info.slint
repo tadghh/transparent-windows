@@ -1,4 +1,5 @@
 
+import { VerticalBox } from "std-widgets.slint";
 export struct HoverInfo {
     process_name: string,
     class_name: string,
@@ -19,11 +20,11 @@ export component MouseInfo inherits Window {
         VerticalLayout {
             spacing: 2px;
             padding: 5px;
-            HorizontalLayout {
+            VerticalLayout {
                 Text {
                     text: "Process:";
                     vertical-alignment: TextVerticalAlignment.bottom;
-                    font-size: 14px;
+                    font-size: 15px;
                     font-weight: 700;
                     max-height: 14px;
                     max-width: 60px;
@@ -31,18 +32,16 @@ export component MouseInfo inherits Window {
 
                 Text {
                     text: root.process_name;
-                    vertical-alignment: TextVerticalAlignment.bottom;
-                    font-size: 12px;
-                    horizontal-alignment: TextHorizontalAlignment.right;
+                    font-size: 13px;
                     max-height: 14px;
                 }
             }
 
-            HorizontalLayout {
+            VerticalLayout {
                 Text {
                     text: "Class:";
                     vertical-alignment: TextVerticalAlignment.bottom;
-                    font-size: 14px;
+                    font-size: 15px;
                     font-weight: 700;
                     max-height: 14px;
                     max-width: 60px;
@@ -50,14 +49,12 @@ export component MouseInfo inherits Window {
 
                 Text {
                     text: root.class_name;
-                    vertical-alignment: TextVerticalAlignment.bottom;
-                    font-size: 12px;
-                    horizontal-alignment: TextHorizontalAlignment.right;
+                    font-size: 13px;
                     max-height: 14px;
                 }
             }
 
-            HorizontalLayout {
+            VerticalLayout {
                 Text {
                     color: #ff8c00;
                     font-weight: 700;

@@ -1,3 +1,4 @@
+use core::ffi::c_void;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use windows::Win32::{
     },
 };
 
-use crate::win_utils::{convert_to_full, convert_to_human};
+use crate::win_utils::{convert_to_full, convert_to_human, make_window_transparent};
 use crate::TransparencyRule;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -29,7 +30,7 @@ pub struct WindowConfig {
     #[serde(default)]
     enabled: bool,
     #[serde(default)]
-    wide_catch: bool,
+    force: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     old_class: Option<String>,
 }
@@ -41,7 +42,7 @@ impl Default for WindowConfig {
             window_class: String::new(),
             transparency: 255,
             enabled: false,
-            wide_catch: false,
+            force: false,
             old_class: None,
         }
     }
@@ -54,7 +55,7 @@ impl From<&WindowConfig> for TransparencyRule {
             window_class: config.window_class.to_owned().into(),
             transparency: convert_to_human(config.transparency).into(),
             enabled: config.enabled,
-            wide_catch: config.wide_catch,
+            force: config.force,
             old_class: config.old_class.to_owned().unwrap_or_default().into(),
         }
     }
@@ -67,7 +68,7 @@ impl From<TransparencyRule> for WindowConfig {
             window_class: config.window_class.to_owned().into(),
             transparency: convert_to_full(config.transparency.try_into().unwrap()),
             enabled: config.enabled,
-            wide_catch: config.wide_catch,
+            force: config.force,
             old_class: if config.old_class.is_empty() {
                 None
             } else {
@@ -84,7 +85,7 @@ impl WindowConfig {
             window_class,
             transparency,
             enabled: true,
-            wide_catch: false,
+            force: false,
             old_class: None,
         }
     }
@@ -120,8 +121,8 @@ impl WindowConfig {
         &self.window_class
     }
 
-    pub fn set_window_class(&mut self, new_class_name: String) {
-        self.window_class = new_class_name
+    pub fn set_window_class(&mut self, new_class_name: &str) {
+        self.window_class = new_class_name.to_owned()
     }
 
     pub fn set_enabled(&mut self, new_state: bool) {
@@ -132,14 +133,27 @@ impl WindowConfig {
         self.enabled
     }
 
-    pub fn set_wide(&mut self, new_state: bool) {
-        self.wide_catch = new_state
+    pub fn set_forced(&mut self, new_state: bool) {
+        self.force = new_state
     }
 
-    pub fn is_wide(&self) -> bool {
-        self.wide_catch
+    pub fn is_forced(&self) -> bool {
+        self.force
     }
 
+    pub fn reset_config(&self) {
+        let handles = self.get_window_hwnds();
+        for handle in handles {
+            _ = make_window_transparent(HWND(handle as *mut c_void), 255);
+        }
+    }
+
+    pub fn refresh_config(&self) {
+        let handles = self.get_window_hwnds();
+        for handle in handles {
+            _ = make_window_transparent(HWND(handle as *mut c_void), self.get_transparency());
+        }
+    }
     /*
       Returns all the current handles for the classname
     */
@@ -216,12 +230,8 @@ fn get_window_class_name(hwnd: HWND) -> Option<String> {
 pub fn find_parent_from_child_class(
     child_class: &str,
 ) -> windows::core::Result<Option<(HWND, String)>> {
-    println!("{:?}", child_class);
     let child_hwnd = match find_window_by_class(child_class)? {
-        Some(hwnd) => {
-            println!("s3");
-            hwnd
-        }
+        Some(hwnd) => hwnd,
         None => {
             return Ok(None);
         }

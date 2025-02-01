@@ -33,7 +33,6 @@ slint-build="1.9.2"
 anyhow           ="1.0.95"
 crossbeam-channel="0.5.14"
 directories      ="5.0.1"
-rustc-hash       ="2.1.0"
 tray-item        ="0.10.0"
 
 serde     ={ version="1.0.217", default-features=false, features=["derive"] }
@@ -68,3 +67,4 @@ windows={ version="0.59.0", default-features=false, features=[
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
+async-compat = "0.2.4"

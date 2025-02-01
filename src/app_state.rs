@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
-use crate::monitor::{refresh_config, reset_config};
 use crate::transparency::create_rules_window;
 use crate::util::Config;
 use crate::win_utils::{self, create_percentage_window};
@@ -49,6 +48,15 @@ impl AppState {
             }
         });
     }
+    pub fn spawn_force_config(&self, value: WindowConfig) {
+        let app_state: Arc<AppState> = Arc::new(self.clone());
+
+        tokio::spawn(async move {
+            if let Err(e) = app_state.add_force_config(value).await {
+                eprintln!("Failed to update window config: {}", e);
+            }
+        });
+    }
 
     pub async fn get_window_rules(&self) -> Vec<TransparencyRule> {
         let config = self.get_config().await;
@@ -86,69 +94,79 @@ impl AppState {
 
     pub async fn add_window_config(
         &self,
-        mut window_config: WindowConfig,
+        window_config: WindowConfig,
     ) -> Result<(), anyhow::Error> {
         let mut config = self.get_config_mut().await;
-
-        if window_config.is_wide() && window_config.get_old_classname().is_none() {
-            let old_key: String = window_config.get_key();
-            let old_class: String = window_config.get_window_class().to_owned();
-
-            config.get_windows().remove(&old_key);
-
-            match find_parent_from_child_class(window_config.get_window_class()) {
-                Ok(class) => {
-                    if let Some(info) = class {
-                        window_config.set_window_class(info.1);
-                        refresh_config(window_config.clone());
-                        config.get_windows().remove(&window_config.get_key());
-                        window_config.set_old_classname(Some(old_class));
-                    }
-                }
-                Err(_) => (),
-            }
-        }
-
-        if !window_config.is_wide() {
-            println!("d");
-            match find_parent_from_child_class(window_config.get_window_class()) {
-                Ok(class) => {
-                    if let Some(info) = class {
-                        let key = &format!("{}|{}", window_config.get_name(), info.1);
-                        println!("hrere {:?}", info);
-                        if config.get_windows().contains_key(key) {
-                            println!("key yo {:?}", key);
-                            let clone_config = window_config.clone();
-                            let real_class = clone_config.get_window_class();
-                            window_config.set_window_class(info.1);
-                            reset_config(window_config.clone());
-                            // let handles = window_config.get_window_hwnds();
-                            window_config.set_window_class(real_class.to_string());
-                            // println!("handles yo {:?}", handles);
-
-                            config.get_windows().remove(key);
-                        }
-                    } else {
-                        println!("2{:?}", class);
-                    }
-                }
-                Err(_) => {
-                    println!("2");
-                    ()
-                }
-            }
-        }
 
         config
             .get_windows()
             .insert(window_config.get_key(), window_config);
 
         let config_json = serde_json::to_string_pretty(&config.to_owned())?;
+        self.config_tx.send(config.to_owned())?;
+
         fs::write(&self.get_config_path(), config_json)?;
 
-        self.config_tx.send(config.clone())?;
+        Ok(())
+    }
+
+    pub async fn add_force_config(
+        &self,
+        mut window_config: WindowConfig,
+    ) -> Result<(), anyhow::Error> {
+        let mut config = self.get_config_mut().await;
+
+        // Get the class name to use for parent lookup
+        let lookup_class = window_config
+            .get_old_classname()
+            .clone()
+            .unwrap_or_else(|| window_config.get_window_class().to_owned());
+
+        // Try to find parent class
+        if let Ok(Some(parent_info)) = find_parent_from_child_class(&lookup_class) {
+            let parent_class = parent_info.1;
+
+            // Remove existing configuration
+            self.remove_existing_config(&mut config, &window_config);
+
+            if window_config.is_forced() {
+                window_config.set_window_class(&parent_class);
+                window_config.refresh_config();
+                window_config.set_old_classname(Some(lookup_class));
+            } else {
+                window_config.set_window_class(&parent_class);
+                window_config.reset_config();
+                window_config.set_window_class(&lookup_class);
+                window_config.set_old_classname(None);
+
+                // Remove parent configuration
+                let parent_key = format!("{}|{}", window_config.get_name(), parent_class);
+                config.get_windows().remove(&parent_key);
+            }
+        }
+
+        // Update configuration
+        config
+            .get_windows()
+            .insert(window_config.get_key(), window_config);
+
+        let config_json = serde_json::to_string_pretty(&config.to_owned())?;
+        self.config_tx.send(config.to_owned())?;
+
+        fs::write(&self.get_config_path(), config_json)?;
 
         Ok(())
+    }
+
+    fn remove_existing_config(&self, config: &mut Config, window_config: &WindowConfig) {
+        // Remove configuration by original key
+        config.get_windows().remove(&window_config.get_key());
+
+        // Remove configuration by old class if it exists
+        if let Some(old_class) = window_config.get_old_classname() {
+            let key = format!("{}|{}", window_config.get_name(), old_class);
+            config.get_windows().remove(&key);
+        }
     }
 
     pub fn subscribe_config_updates(&self) -> broadcast::Receiver<Config> {
