@@ -15,7 +15,7 @@ use std::{
 use windows::{
     core::{PCSTR, PWSTR},
     Win32::{
-        Foundation::{COLORREF, HANDLE, HWND, MAX_PATH, POINT},
+        Foundation::{COLORREF, ERROR_SUCCESS, HANDLE, HWND, MAX_PATH, POINT},
         Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
         System::{
             Registry::{
@@ -363,6 +363,7 @@ fn is_running_as_admin() -> bool {
 /*
  Enables/disables autostart.
 */
+
 pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
     let key = HKEY_CURRENT_USER;
     let mut startup_key = HKEY::default();
@@ -373,7 +374,7 @@ pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-
+    println!("ran key{}", current_state);
     unsafe {
         let _ = RegCreateKeyExA(
             key,
@@ -388,14 +389,23 @@ pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
         );
 
         if current_state {
-            let _ = RegSetValueExA(
+            println!("{:?}\n{:?}\n{:?}", startup_key, app_name, exe_path);
+
+            let result = RegSetValueExA(
                 startup_key,
                 app_name,
                 Some(0),
                 REG_SZ,
                 Some(exe_path.as_bytes()),
             );
+
+            if result == ERROR_SUCCESS {
+                println!("Registry key set successfully");
+            } else {
+                eprintln!("Failed to set registry key: {:?}", result);
+            }
         } else {
+            println!("{:?}{:?}", startup_key, app_name);
             let _ = RegDeleteValueA(startup_key, app_name);
         }
 
@@ -406,26 +416,36 @@ pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
 }
 
 /*
- Returns if autostart is enabled.
+ Returns if autostart is enabled, by checking if the autostart regkey for the current user exists.
 */
 pub fn get_startup_state() -> bool {
-    let key = HKEY_CURRENT_USER;
+    let key: HKEY = HKEY_CURRENT_USER;
     let path_str = PCSTR::from_raw(b"Software\\Microsoft\\Windows\\CurrentVersion\\Run\0".as_ptr());
+    let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
+
     let mut startup_key = HKEY::default();
+    let mut size = 0u32;
+    let mut buffer: Vec<u8> = Vec::with_capacity(size as usize);
 
     unsafe {
         let result = RegOpenKeyExA(key, path_str, Some(0), KEY_READ, &mut startup_key);
 
-        if result.is_err() {
+        if result != ERROR_SUCCESS {
+            eprintln!("Failed to open registry key: {:?}", result);
             return false;
         }
 
-        let mut buffer: Vec<u8> = Vec::with_capacity(260);
-        let mut size = buffer.len() as u32;
-        let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
+        let result = RegQueryValueExA(startup_key, app_name, None, None, None, Some(&mut size));
 
-        buffer.resize(260, 0);
+        if result != ERROR_SUCCESS {
+            eprintln!(
+                "Success: Failed to query size for registry key: {:?}",
+                result
+            );
+            return false;
+        }
 
+        // Query the actual value
         let result = RegQueryValueExA(
             startup_key,
             app_name,
@@ -435,7 +455,15 @@ pub fn get_startup_state() -> bool {
             Some(&mut size),
         );
 
-        _ = RegCloseKey(startup_key);
-        result.is_ok()
+        if result == ERROR_SUCCESS {
+            println!(
+                "Found registry key successfully with value: {:?}",
+                String::from_utf8_lossy(&buffer)
+            );
+            return true;
+        } else {
+            eprintln!("Failed to query registry key: {:?}", result);
+            return false;
+        }
     }
 }

@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 #![feature(let_chains)]
 use anyhow::Result;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use util::{load_config, Message};
 use win_utils::{change_startup, get_startup_state};
 slint::include_modules!();
 
-#[cfg(target_os = "windows")]
+// #[cfg(target_os = "windows")]
 #[tokio::main]
 async fn main() -> Result<()> {
     let (tx, mut rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =
@@ -60,12 +60,13 @@ async fn main() -> Result<()> {
                     app_state.set_enable_state(false).await;
                 }
                 Message::Startup => {
-                    if !get_startup_state() {
+                    let _ = change_startup(!get_startup_state());
+
+                    if get_startup_state() {
                         tray.inner_mut().set_menu_item_label("Startup - True", 5)?;
                     } else {
                         tray.inner_mut().set_menu_item_label("Startup - False", 5)?;
                     }
-                    let _ = change_startup(!get_startup_state());
                 }
             }
         }
