@@ -4,7 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tray_item::{IconSource, TIError, TrayItem};
 
 pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
-    let mut tray = TrayItem::new("WinAlpha", IconSource::Resource("APPICON"))?;
+    let mut tray = TrayItem::new("WinAlpha", IconSource::Resource("tray-default"))?;
 
     let add_tx = tx.clone();
     tray.add_menu_item("Add", move || {

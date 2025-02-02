@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 #![feature(let_chains)]
 use anyhow::Result;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use util::{load_config, Message};
 use win_utils::{change_startup, get_startup_state};
 slint::include_modules!();
 
-// #[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
 #[tokio::main]
 async fn main() -> Result<()> {
     let (tx, mut rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =

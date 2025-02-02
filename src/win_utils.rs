@@ -425,7 +425,6 @@ pub fn get_startup_state() -> bool {
 
     let mut startup_key = HKEY::default();
     let mut size = 0u32;
-    let mut buffer: Vec<u8> = Vec::with_capacity(size as usize);
 
     unsafe {
         let result = RegOpenKeyExA(key, path_str, Some(0), KEY_READ, &mut startup_key);
@@ -435,6 +434,7 @@ pub fn get_startup_state() -> bool {
             return false;
         }
 
+        // Query the size first
         let result = RegQueryValueExA(startup_key, app_name, None, None, None, Some(&mut size));
 
         if result != ERROR_SUCCESS {
@@ -444,6 +444,9 @@ pub fn get_startup_state() -> bool {
             );
             return false;
         }
+
+        // Allocate buffer with the size we got
+        let mut buffer: Vec<u8> = Vec::with_capacity(size as usize);
 
         // Query the actual value
         let result = RegQueryValueExA(
@@ -456,10 +459,7 @@ pub fn get_startup_state() -> bool {
         );
 
         if result == ERROR_SUCCESS {
-            println!(
-                "Found registry key successfully with value: {:?}",
-                String::from_utf8_lossy(&buffer)
-            );
+            println!("Found registry key successfully");
             return true;
         } else {
             eprintln!("Failed to query registry key: {:?}", result);

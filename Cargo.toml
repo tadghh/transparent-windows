@@ -28,7 +28,8 @@ rpath          =false
 strip          =true
 
 [build-dependencies]
-slint-build="1.9.2"
+embed-resource="2.3"
+slint-build   ="1.9.2"
 
 [dependencies]
 anyhow           ="1.0.95"
