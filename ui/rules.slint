@@ -48,6 +48,7 @@ component DataRow inherits Rectangle {
                 max-width: 40px;
                 min-width: 80px;
                 Text {
+                    font-family: "Arial";
                     font-size: 12px;
                     horizontal-alignment: TextHorizontalAlignment.left;
                     text: root.process_name;
@@ -55,6 +56,7 @@ component DataRow inherits Rectangle {
                 }
 
                 Text {
+                    font-family: "Arial";
                     font-size: 10px;
                     horizontal-alignment: TextHorizontalAlignment.left;
                     overflow: TextOverflow.elide;
@@ -89,13 +91,14 @@ component DataRow inherits Rectangle {
             }
 
             Rectangle {
-                background: #161515;
                 min-width: 24px;
                 min-height: 16px;
                 TextInput {
+                    text-cursor-width: 1px;
                     max-width: 24px;
                     text: root.rule.transparency;
-                    vertical-alignment: center;
+                    vertical-alignment: TextVerticalAlignment.center;
+                    font-family: "Arial";
                     font-italic: true;
                     horizontal-alignment: TextHorizontalAlignment.center;
                     input-type: InputType.decimal;
@@ -151,6 +154,7 @@ export component RulesWindow inherits Window {
         padding: 8px;
         Text {
             text: "Rules";
+            font-family: "Arial";
             font-size: 16px;
             font-weight: 700;
             height: 25px;
@@ -158,6 +162,7 @@ export component RulesWindow inherits Window {
 
         Text {
             text: "Changes made are live.";
+            font-family: "Arial";
             font-size: 12px;
             font-weight: 200;
             height: 30px;
@@ -169,27 +174,29 @@ export component RulesWindow inherits Window {
             Text {
                 max-width: 80px;
                 min-width: 80px;
-                font-weight: 500;
+                font-family: "";
+                font-weight: 700;
                 text: "Rule:";
             }
 
             Text {
                 min-width: 50px;
                 max-width: 0px;
-                font-weight: 500;
+                font-family: "";
+                font-weight: 700;
                 text: "Enabled:";
             }
 
             Text {
                 horizontal-alignment: TextHorizontalAlignment.right;
-                font-weight: 500;
+                font-weight: 700;
                 text: "Force:";
             }
 
             Text {
                 horizontal-alignment: TextHorizontalAlignment.right;
                 max-width: 24px;
-                font-weight: 500;
+                font-weight: 700;
                 stroke-style: TextStrokeStyle.center;
                 text: "Percentage:";
             }

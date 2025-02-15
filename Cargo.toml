@@ -17,6 +17,7 @@ path="src/main.rs"
 os=["windows"]
 
 [profile.release]
+code-model     ="tiny"
 codegen-units  =1
 debug          =false
 incremental    =false
@@ -25,7 +26,7 @@ opt-level      =3
 overflow-checks=false
 panic          ="abort"
 rpath          =false
-strip          =true
+strip          ="symbols"
 
 [build-dependencies]
 embed-resource="2.5"

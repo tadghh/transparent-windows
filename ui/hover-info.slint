@@ -15,23 +15,27 @@ export component MouseInfo inherits Window {
     in property <string> error_string: "test error";
     in property <string> class_name: "test class";
     Rectangle {
-        border-color: #fff;
-        border-width: 2px;
+        min-width: 250px;
         VerticalLayout {
             spacing: 2px;
             padding: 5px;
             VerticalLayout {
                 Text {
+                    stroke-style: TextStrokeStyle.outside;
+                    stroke-width: 0px;
                     text: "Process:";
                     vertical-alignment: TextVerticalAlignment.bottom;
+                    font-family: "Arial";
                     font-size: 15px;
-                    font-weight: 700;
+                    font-weight: 500;
                     max-height: 14px;
                     max-width: 60px;
                 }
 
                 Text {
                     text: root.process_name;
+                    font-family: "Arial";
+                    font-italic: false;
                     font-size: 13px;
                     max-height: 14px;
                 }
@@ -41,14 +45,17 @@ export component MouseInfo inherits Window {
                 Text {
                     text: "Class:";
                     vertical-alignment: TextVerticalAlignment.bottom;
+                    font-family: "Arial";
                     font-size: 15px;
-                    font-weight: 700;
+                    font-weight: 500;
                     max-height: 14px;
                     max-width: 60px;
                 }
 
                 Text {
                     text: root.class_name;
+                    font-family: "Arial";
+                    font-italic: false;
                     font-size: 13px;
                     max-height: 14px;
                 }

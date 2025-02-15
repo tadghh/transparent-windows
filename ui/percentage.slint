@@ -1,8 +1,8 @@
 import { Palette, Button,ListView, VerticalBox } from "std-widgets.slint";
 
 export global PercentageInput {
-    in-out property <string> name;
-    in-out property <string> classname;
+    in-out property <string> name: "test name";
+    in-out property <string> classname: "test class";
 }
 
 export component PercentageWindow inherits Window {
@@ -20,7 +20,7 @@ export component PercentageWindow inherits Window {
             font-italic: true;
             font-size: 20px;
             font-weight: 500;
-            horizontal-alignment: TextHorizontalAlignment.center;
+            horizontal-alignment: TextHorizontalAlignment.left;
             text: PercentageInput.name;
             vertical-alignment: center;
         }
@@ -28,23 +28,24 @@ export component PercentageWindow inherits Window {
         HorizontalLayout {
             spacing: 10px;
             Text {
+                font-family: "Arial";
                 font-size: 14px;
-                font-weight: 500;
-                text: "Enter percentage:";
+                text: "Percentage:";
                 vertical-alignment: center;
             }
 
             Rectangle {
-                background: #161515;
                 height: 20px;
                 y: 2.5px;
                 width: 100px;
                 input := TextInput {
                     vertical-alignment: TextVerticalAlignment.center;
                     width: 90px;
-                    color: #fff;
+                    font-family: "Arial";
+                    font-weight: 700;
                     height: 20px;
                     text: "95";
+                    text-cursor-width: 1px;
                     horizontal-alignment: TextHorizontalAlignment.right;
                     input-type: InputType.decimal;
                     changed text => {
@@ -72,11 +73,13 @@ export component PercentageWindow inherits Window {
         VerticalLayout {
             HorizontalLayout {
                 Text {
+                    font-family: "Arial";
                     font-size: 13px;
                     text: "Class:";
                 }
 
                 Text {
+                    horizontal-alignment: TextHorizontalAlignment.right;
                     text: PercentageInput.classname;
                 }
             }
