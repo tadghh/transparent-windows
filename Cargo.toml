@@ -6,7 +6,7 @@ keywords   =["transparency", "windows"]
 name       ="win_alpha"
 readme     ="readme.md"
 repository ="https://github.com/tadghh/transparent-windows"
-version    ="1.2.6"
+version    ="1.2.7"
 
 [[bin]]
 name="win_alpha"
@@ -17,7 +17,6 @@ path="src/main.rs"
 os=["windows"]
 
 [profile.release]
-code-model     ="tiny"
 codegen-units  =1
 debug          =false
 incremental    =false
