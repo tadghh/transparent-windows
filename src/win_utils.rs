@@ -7,6 +7,7 @@ use core::time::Duration;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use slint::{ComponentHandle, PhysicalPosition, SharedString};
 use std::{
+    env::current_exe,
     os::raw::c_void,
     sync::Arc,
     thread::{self, sleep},
@@ -39,8 +40,10 @@ use windows::{
     },
 };
 
+// This is "left click"
 const KEY_PRESSED: i16 = 0x8000u16 as i16;
 
+// Aligns the mouse cursor (window scaling will break this)
 const MOUSE_OFFSET: i32 = 15;
 
 const MINIMUM_TRANSPARENCY: i32 = 30;
@@ -275,7 +278,7 @@ pub async fn create_percentage_window(
 }
 
 /*
-  Makes the window with the provided handle transparent.
+  Sets the transparency of the handles window.
 */
 pub fn make_window_transparent(window_handle: HWND, transparency: u8) -> Result<(), anyhow::Error> {
     unsafe {
@@ -300,6 +303,8 @@ pub fn make_window_transparent(window_handle: HWND, transparency: u8) -> Result<
 
 /*
   Returns if the window below the cursor is running as admin.
+  Used by the UI to make the user aware when a program they want to select a administrator program.
+  Hopefully they will realize they need to run WinAlpha to select it.
 */
 fn is_elevated(point: POINT) -> bool {
     let mut process_id = 0;
@@ -361,23 +366,22 @@ fn is_running_as_admin() -> bool {
 }
 
 /*
- Enables/disables autostart.
+ Enables/disables autostart of WinAlpha.
+ Done by adding a registry key for the current user under "run" this key is created with the current path WinAlpha was executed with
 */
-
 pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
-    let key = HKEY_CURRENT_USER;
     let mut startup_key = HKEY::default();
 
     let path_str = PCSTR::from_raw(b"Software\\Microsoft\\Windows\\CurrentVersion\\Run\0".as_ptr());
     let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
-    let exe_path = std::env::current_exe()
+    let exe_path = current_exe()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    println!("ran key{}", current_state);
+
     unsafe {
-        let _ = RegCreateKeyExA(
-            key,
+        _ = RegCreateKeyExA(
+            HKEY_CURRENT_USER,
             path_str,
             Some(0),
             None,
@@ -389,34 +393,28 @@ pub fn change_startup(current_state: bool) -> windows::core::Result<()> {
         );
 
         if current_state {
-            println!("{:?}\n{:?}\n{:?}", startup_key, app_name, exe_path);
-
-            let result = RegSetValueExA(
+            // State is true so we add the startup key
+            _ = RegSetValueExA(
                 startup_key,
                 app_name,
                 Some(0),
                 REG_SZ,
                 Some(exe_path.as_bytes()),
             );
-
-            if result == ERROR_SUCCESS {
-                println!("Registry key set successfully");
-            } else {
-                eprintln!("Failed to set registry key: {:?}", result);
-            }
         } else {
-            println!("{:?}{:?}", startup_key, app_name);
-            let _ = RegDeleteValueA(startup_key, app_name);
+            // It false so remove it
+            _ = RegDeleteValueA(startup_key, app_name);
         }
-
-        let _ = RegCloseKey(startup_key);
+        // close reg key handle
+        _ = RegCloseKey(startup_key);
     }
 
     Ok(())
 }
 
 /*
- Returns if autostart is enabled, by checking if the autostart regkey for the current user exists.
+ Returns if autostart is enabled.
+ This is done by checking if the startup registry key exists for the current user.
 */
 pub fn get_startup_state() -> bool {
     let key: HKEY = HKEY_CURRENT_USER;
@@ -430,7 +428,6 @@ pub fn get_startup_state() -> bool {
         let result = RegOpenKeyExA(key, path_str, Some(0), KEY_READ, &mut startup_key);
 
         if result != ERROR_SUCCESS {
-            eprintln!("Failed to open registry key: {:?}", result);
             return false;
         }
 
@@ -438,32 +435,18 @@ pub fn get_startup_state() -> bool {
         let result = RegQueryValueExA(startup_key, app_name, None, None, None, Some(&mut size));
 
         if result != ERROR_SUCCESS {
-            eprintln!(
-                "Success: Failed to query size for registry key: {:?}",
-                result
-            );
             return false;
         }
 
-        // Allocate buffer with the size we got
-        let mut buffer: Vec<u8> = Vec::with_capacity(size as usize);
-
-        // Query the actual value
         let result = RegQueryValueExA(
             startup_key,
             app_name,
             None,
             None,
-            Some(buffer.as_mut_ptr()),
+            Some(Vec::with_capacity(size as usize).as_mut_ptr()),
             Some(&mut size),
         );
 
-        if result == ERROR_SUCCESS {
-            println!("Found registry key successfully");
-            return true;
-        } else {
-            eprintln!("Failed to query registry key: {:?}", result);
-            return false;
-        }
+        return result == ERROR_SUCCESS;
     }
 }

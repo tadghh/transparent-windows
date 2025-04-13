@@ -1,6 +1,6 @@
-[unstable]
-build-std         =["alloc", "core", "panic_abort", "proc_macro", "std"]
-build-std-features=["panic_immediate_abort"]
+# [unstable]
+# build-std         =["alloc", "core", "panic_abort", "proc_macro", "std"]
+# build-std-features=["panic_immediate_abort"]
 
 [build]
 rustflags=[

@@ -22,6 +22,8 @@ slint::include_modules!();
 #[cfg(target_os = "windows")]
 #[tokio::main]
 async fn main() -> Result<()> {
+    use tray::STARTUP_ID;
+
     let (tx, mut rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =
         mpsc::unbounded_channel();
 
@@ -61,12 +63,9 @@ async fn main() -> Result<()> {
                 }
                 Message::Startup => {
                     let _ = change_startup(!get_startup_state());
-
-                    if get_startup_state() {
-                        tray.inner_mut().set_menu_item_label("Startup - True", 5)?;
-                    } else {
-                        tray.inner_mut().set_menu_item_label("Startup - False", 5)?;
-                    }
+                    let state_string = format!("Startup - {}", get_startup_state());
+                    tray.inner_mut()
+                        .set_menu_item_label(&state_string, STARTUP_ID)?;
                 }
             }
         }
