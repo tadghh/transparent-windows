@@ -3,8 +3,11 @@
 
 # WinAlpha
 
-Control window transparency in Windows with ease
+Allows you to **set** the **transparency** of programs on **Windows**
 
+<a href="https://github.com/tadghh/transparent-windows/releases/tag/v1.2.8">
+<img alt="download" src="https://img.shields.io/badge/Download-%3E-brightgreen">
+</a>
 </div>
 
 ## Features
