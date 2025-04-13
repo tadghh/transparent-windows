@@ -57,7 +57,8 @@ pub struct WindowInfo {
 /*
   This function is called to allow the user to click on a window, the info about the window is returned.
 
-  Note: Should really try to click on the border of the window, clicking inside causes issues
+  Note: Should really try to click on the border of the window,
+   clicking inside can cause issues since programs have windows inside of other windows (that are not modal).
 */
 pub fn get_window_under_cursor() -> Result<WindowInfo> {
     let window = MouseInfo::new()?;
@@ -152,10 +153,13 @@ fn is_left_click() -> bool {
     unsafe { (GetAsyncKeyState(VK_LBUTTON.0.into()) & KEY_PRESSED) != 0 }
 }
 
+/*
+  Gets information that will be used to store and identify the window
+*/
 fn get_window_info(point: POINT) -> Result<WindowInfo> {
     unsafe {
         let hwnd = WindowFromPoint(point);
-        if hwnd.0 == std::ptr::null_mut() {
+        if hwnd.0.is_null() {
             return Err(anyhow!("No window found at cursor position."));
         }
 
@@ -178,11 +182,10 @@ fn get_window_info(point: POINT) -> Result<WindowInfo> {
 */
 pub fn get_process_name(process_id: u32) -> Result<String> {
     unsafe {
-        // Stack allocate buffer
+        // A holding buffer for the process name.
         let mut buffer = [0u16; MAX_PATH as usize];
         let mut size = buffer.len() as u32;
 
-        // Use ? operator for early return
         let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
             .map_err(|_| anyhow!("Failed to get process handle."))?;
 
@@ -196,13 +199,17 @@ pub fn get_process_name(process_id: u32) -> Result<String> {
         .map_err(|_| anyhow!("Failed to get process name."))?;
 
         // Extract filename without extension
-        let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
-        Ok(full_path
-            .rsplit('\\') // rsplit is slightly faster for getting last element
+        let buffer_path = String::from_utf16_lossy(&buffer[..size as usize]);
+        let split_name = buffer_path
+            .rsplit('\\')
             .next()
-            .and_then(|s| s.split('.').next())
-            .unwrap_or("")
-            .to_string())
+            .and_then(|s| s.split('.').next());
+
+        if let Some(file_name) = split_name {
+            Ok(file_name.to_owned())
+        } else {
+            Err(anyhow!("Failed to get application name."))
+        }
     }
 }
 
@@ -220,7 +227,7 @@ pub fn convert_to_full(mut value: i32) -> u8 {
 }
 
 /*
-  Takes a u8 (255) value and converts it to a measureable format (a percentage of 100)
+  Takes a u8 (255) value and converts it to a measurable format (a percentage of 100)
 */
 pub fn convert_to_human(value: u8) -> u8 {
     ((value as f32 / 255.0) * 100.0).round() as u8
@@ -244,22 +251,17 @@ pub async fn create_percentage_window(
     }
 
     window.on_submit(move |value: SharedString| {
-        let value_string = value.to_owned();
-
-        if value_string.is_empty() {
+        if value.is_empty() {
             return;
         }
 
-        let window_info = window_info.clone();
-        if let Ok(number) = value_string.parse::<u8>() {
-            let value = convert_to_full(number.into());
-
-            let window_config =
-                WindowConfig::new(window_info.process_name, window_info.class_name, value);
-
+        if let Ok(number) = value.parse::<u8>() {
             let app_state = Arc::clone(&app_state);
 
-            app_state.spawn_update_config(window_config);
+            app_state.spawn_update_config(WindowConfig::new(
+                &window_info,
+                convert_to_full(number.into()),
+            ));
 
             if let Some(window) = submit_handle.upgrade() {
                 window.hide().expect("Failed to hide percentage window.");

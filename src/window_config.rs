@@ -1,8 +1,8 @@
 use core::ffi::c_void;
 use std::path::Path;
 
+use crate::win_utils::WindowInfo;
 use serde::{Deserialize, Serialize};
-
 use windows::core::PCWSTR;
 
 use windows::Win32::Foundation::CloseHandle;
@@ -66,7 +66,7 @@ impl From<TransparencyRule> for WindowConfig {
         WindowConfig {
             process_name: config.process_name.to_owned().into(),
             window_class: config.window_class.to_owned().into(),
-            transparency: convert_to_full(config.transparency.try_into().unwrap()),
+            transparency: convert_to_full(config.transparency.try_into().unwrap_or(100)),
             enabled: config.enabled,
             force: config.force,
             old_class: if config.old_class.is_empty() {
@@ -79,10 +79,10 @@ impl From<TransparencyRule> for WindowConfig {
 }
 
 impl WindowConfig {
-    pub fn new(process_name: String, window_class: String, transparency: u8) -> Self {
+    pub fn new(info: &WindowInfo, transparency: u8) -> Self {
         Self {
-            process_name,
-            window_class,
+            process_name: info.process_name.to_owned(),
+            window_class: info.class_name.to_owned(),
             transparency,
             enabled: true,
             force: false,
@@ -261,14 +261,7 @@ fn find_window_by_class(target_class: &str) -> windows::core::Result<Option<HWND
     unsafe extern "system" fn enum_windows_proc(parent_hwnd: HWND, lparam: LPARAM) -> BOOL {
         let state = &mut *(lparam.0 as *mut SearchState);
         let _ = EnumChildWindows(Some(parent_hwnd), Some(enum_child_windows_proc), lparam);
-
-        if state.found_hwnd.is_some() {
-            state.found_hwnd = state.found_hwnd;
-
-            false.into()
-        } else {
-            true.into()
-        }
+        (!state.found_hwnd.is_some()).into()
     }
 
     fn find_topmost_parent(hwnd: HWND) -> Option<HWND> {
