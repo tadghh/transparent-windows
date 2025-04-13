@@ -104,7 +104,7 @@ impl AppState {
         let config_json = serde_json::to_string_pretty(&config.to_owned())?;
         self.config_tx.send(config.to_owned())?;
 
-        fs::write(&self.get_config_path(), config_json)?;
+        fs::write(self.get_config_path(), config_json)?;
 
         Ok(())
     }
@@ -152,7 +152,7 @@ impl AppState {
         let config_json = serde_json::to_string_pretty(&config.to_owned())?;
         self.config_tx.send(config.to_owned())?;
 
-        fs::write(&self.get_config_path(), config_json)?;
+        fs::write(self.get_config_path(), config_json)?;
 
         Ok(())
     }

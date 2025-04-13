@@ -5066,7 +5066,7 @@ checksum = "53a85b86a771b1c87058196170769dd264f66c0782acf1ae6cc51bfd64b39082"
 
 [[package]]
 name = "win_alpha"
-version = "1.2.8"
+version = "1.2.9"
 dependencies = [
  "anyhow",
  "crossbeam-channel",

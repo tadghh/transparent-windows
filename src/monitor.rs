@@ -2,6 +2,11 @@ use crate::{app_state::AppState, util::Config, win_utils::make_window_transparen
 use core::time::Duration;
 use std::{collections::HashMap, os::raw::c_void, sync::Arc};
 use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::IsWindow};
+
+// Delays between window monitor runs
+// new windows, window updates etc.
+const MONITOR_DELAY: u64 = 120;
+
 #[derive(Eq, PartialEq, Clone, Debug)]
 struct WindowHandleState {
     handle: isize,
@@ -47,7 +52,7 @@ impl WindowHandleState {
 
     pub fn update_window(&mut self, mut new_transparency: u8, enabled: bool) {
         let real_transparency = new_transparency;
-        if enabled == false {
+        if !enabled {
             new_transparency = 255;
         }
         if make_window_transparent(self.get_handle(), new_transparency).is_ok() {
@@ -61,7 +66,7 @@ impl WindowHandleState {
 */
 #[inline(always)]
 pub async fn monitor_windows(app_state: Arc<AppState>) {
-    let refresh_interval = Duration::from_millis(160);
+    let refresh_interval = Duration::from_millis(MONITOR_DELAY);
 
     let mut config = app_state.get_config().await;
     let mut is_enabled = app_state.is_enabled().await;

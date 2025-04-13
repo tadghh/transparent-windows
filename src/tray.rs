@@ -41,7 +41,7 @@ fn add_tray_menu_item(
     message: Message,
 ) -> Result<(), TIError> {
     let tx_clone = tx.clone();
-    tray.add_menu_item(&label, move || {
+    tray.add_menu_item(label, move || {
         if let Err(e) = tx_clone.send(message.clone()) {
             eprintln!("Failed to send {} message: {}", label, e);
         }

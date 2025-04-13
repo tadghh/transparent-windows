@@ -221,7 +221,7 @@ fn find_window_by_class(target_class: &str) -> windows::core::Result<Option<HWND
     unsafe extern "system" fn enum_windows_proc(parent_hwnd: HWND, lparam: LPARAM) -> BOOL {
         let state = &mut *(lparam.0 as *mut SearchState);
         let _ = EnumChildWindows(Some(parent_hwnd), Some(enum_child_windows_proc), lparam);
-        (!state.found_hwnd.is_some()).into()
+        (state.found_hwnd.is_none()).into()
     }
 
     fn find_topmost_parent(hwnd: HWND) -> Option<HWND> {
@@ -282,7 +282,7 @@ impl From<TransparencyRule> for WindowConfig {
         WindowConfig {
             process_name: config.process_name.to_owned().into(),
             window_class: config.window_class.to_owned().into(),
-            transparency: convert_to_full(config.transparency.try_into().unwrap_or(100)),
+            transparency: convert_to_full(config.transparency),
             enabled: config.enabled,
             force: config.force,
             old_class: if config.old_class.is_empty() {

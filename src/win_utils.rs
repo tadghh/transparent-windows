@@ -315,7 +315,7 @@ fn is_elevated(point: POINT) -> bool {
 
     unsafe {
         let hwnd = WindowFromPoint(point);
-        if hwnd.0 == std::ptr::null_mut() {
+        if hwnd.0.is_null() {
             return false;
         }
 
@@ -362,7 +362,7 @@ fn is_running_as_admin() -> bool {
             size,
             &mut size,
         )
-        .map_or(false, |_| elevation.TokenIsElevated != 0)
+        .is_ok_and(|_| elevation.TokenIsElevated != 0)
     }
 }
 
@@ -448,6 +448,6 @@ pub fn get_startup_state() -> bool {
             Some(&mut size),
         );
 
-        return result == ERROR_SUCCESS;
+        result == ERROR_SUCCESS
     }
 }

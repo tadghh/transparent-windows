@@ -100,7 +100,7 @@ pub fn create_config_error_window(config_path: PathBuf) -> Result<(), Error> {
             if let Ok(config_json) = serde_json::to_string_pretty(&[serde_json::json!({})])
                 && let Ok(config_clone) = config_clone.lock()
             {
-                fs::write(&config_clone.as_str(), config_json).expect("better not.");
+                fs::write(config_clone.as_str(), config_json).expect("better not.");
             } else {
                 _ = anyhow!("AHHHHH failed to lock/write config!!!");
             }
@@ -108,12 +108,11 @@ pub fn create_config_error_window(config_path: PathBuf) -> Result<(), Error> {
     });
 
     window.on_cancel(move || {
-        if !*action_taken_clone.lock().unwrap() {
-            if let Ok(config_clone) = config_clone_cancel.lock()
-                && let Ok(config_json) = serde_json::to_string_pretty(&[serde_json::json!({})])
-            {
-                fs::write(config_clone.as_str(), config_json).expect("better not.");
-            }
+        if !*action_taken_clone.lock().unwrap()
+            && let Ok(config_clone) = config_clone_cancel.lock()
+            && let Ok(config_json) = serde_json::to_string_pretty(&[serde_json::json!({})])
+        {
+            fs::write(config_clone.as_str(), config_json).expect("better not.");
         }
 
         if let Some(handle) = window_handle.upgrade() {
