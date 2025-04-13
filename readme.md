@@ -34,6 +34,8 @@ Allows you to **set** the **transparency** of programs on **Windows**
 ```rust
 cargo build --release
 ```
+## Download
+You can download a compiled version from the releases section on the right hand side.
 
 ## Examples
 
