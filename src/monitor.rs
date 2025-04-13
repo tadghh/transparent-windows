@@ -1,9 +1,6 @@
 use crate::{app_state::AppState, util::Config, win_utils::make_window_transparent};
-
 use core::time::Duration;
-use std::{os::raw::c_void, sync::Arc};
-
-use std::collections::HashMap;
+use std::{collections::HashMap, os::raw::c_void, sync::Arc};
 use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::IsWindow};
 #[derive(Eq, PartialEq, Clone, Debug)]
 struct WindowHandleState {

@@ -1,9 +1,13 @@
 #![windows_subsystem = "windows"]
 #![feature(let_chains)]
 use anyhow::Result;
+use app_state::AppState;
+use monitor::monitor_windows;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-
+use tray::{setup_tray, STARTUP_ID};
+use util::{load_config, Message};
+use win_utils::{change_startup, get_startup_state};
 mod app_state;
 mod monitor;
 mod transparency;
@@ -11,11 +15,7 @@ mod tray;
 mod util;
 mod win_utils;
 mod window_config;
-use app_state::AppState;
-use monitor::monitor_windows;
-use tray::{setup_tray, STARTUP_ID};
-use util::{load_config, Message};
-use win_utils::{change_startup, get_startup_state};
+
 slint::include_modules!();
 
 #[cfg(target_os = "windows")]

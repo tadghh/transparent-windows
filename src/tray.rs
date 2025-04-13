@@ -1,5 +1,4 @@
-use crate::get_startup_state;
-use crate::util::Message;
+use crate::{get_startup_state, util::Message};
 use tokio::sync::mpsc::UnboundedSender;
 use tray_item::{IconSource, TIError, TrayItem};
 

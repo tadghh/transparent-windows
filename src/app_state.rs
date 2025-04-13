@@ -1,14 +1,12 @@
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
+use crate::{
+    transparency::create_rules_window,
+    util::Config,
+    win_utils::{self, create_percentage_window},
+    window_config::{find_parent_from_child_class, WindowConfig},
+    TransparencyRule,
+};
+use std::{fs, path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast, RwLock};
-
-use crate::transparency::create_rules_window;
-use crate::util::Config;
-use crate::win_utils::{self, create_percentage_window};
-use crate::window_config::find_parent_from_child_class;
-use crate::window_config::WindowConfig;
-use crate::TransparencyRule;
 
 #[derive(Clone)]
 pub struct AppState {

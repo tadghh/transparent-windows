@@ -1,8 +1,6 @@
-use std::{rc::Rc, sync::Arc};
-
 use crate::{app_state::AppState, RulesStorage, RulesWindow, TransparencyRule};
-
 use slint::{ComponentHandle, Model, VecModel};
+use std::{rc::Rc, sync::Arc};
 
 /*
   Creates the rules window, this is so the user can see what rules are currently active.

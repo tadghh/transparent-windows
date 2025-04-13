@@ -1,17 +1,18 @@
-use crate::ConfigWindow;
-use anyhow::anyhow;
-use anyhow::Error;
+use crate::{window_config::WindowConfig, ConfigWindow};
+use anyhow::{anyhow, Error};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use slint::ComponentHandle;
-use std::collections::HashMap;
-use std::fs::{self, create_dir_all};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use windows::core::{w, PCWSTR};
-use windows::Win32::UI::Shell::ShellExecuteW;
-
-use crate::window_config::WindowConfig;
+use std::{
+    collections::HashMap,
+    fs::{self, create_dir_all},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use windows::{
+    core::{w, PCWSTR},
+    Win32::UI::Shell::ShellExecuteW,
+};
 
 #[derive(Clone)]
 pub enum Message {

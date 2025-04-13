@@ -1,7 +1,6 @@
 use crate::{
     app_state::AppState, window_config::WindowConfig, MouseInfo, PercentageInput, PercentageWindow,
 };
-
 use anyhow::{anyhow, Result};
 use core::time::Duration;
 use crossbeam_channel::{bounded, Receiver, Sender};

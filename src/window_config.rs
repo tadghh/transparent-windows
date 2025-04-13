@@ -1,22 +1,22 @@
-use core::ffi::c_void;
-use std::path::Path;
-
 use crate::{
     win_utils::{convert_to_full, convert_to_human, make_window_transparent, WindowInfo},
     TransparencyRule,
 };
+use core::ffi::c_void;
 use serde::{Deserialize, Serialize};
-use windows::core::PCWSTR;
-
-use windows::Win32::{
-    Foundation::{CloseHandle, BOOL, HWND, LPARAM, MAX_PATH},
-    System::{
-        ProcessStatus::GetProcessImageFileNameA,
-        Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
-    },
-    UI::WindowsAndMessaging::{
-        EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetParent,
-        GetWindowThreadProcessId,
+use std::path::Path;
+use windows::{
+    core::PCWSTR,
+    Win32::{
+        Foundation::{CloseHandle, BOOL, HWND, LPARAM, MAX_PATH},
+        System::{
+            ProcessStatus::GetProcessImageFileNameA,
+            Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+        },
+        UI::WindowsAndMessaging::{
+            EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetParent,
+            GetWindowThreadProcessId,
+        },
     },
 };
 
