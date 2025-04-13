@@ -2,6 +2,7 @@ use crate::{window_config::WindowConfig, ConfigWindow};
 use anyhow::{anyhow, Error};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 use slint::ComponentHandle;
 use std::{
     collections::HashMap,
@@ -93,7 +94,6 @@ pub fn create_config_error_window(config_path: PathBuf) -> Result<(), Error> {
                 }
                 Err(e) => {
                     _ = anyhow!("AHHHHH {}", e);
-                    println!("yo");
                 }
             }
 
@@ -109,7 +109,6 @@ pub fn create_config_error_window(config_path: PathBuf) -> Result<(), Error> {
 
     window.on_cancel(move || {
         if !*action_taken_clone.lock().unwrap() {
-            println!("false");
             if let Ok(config_clone) = config_clone_cancel.lock()
                 && let Ok(config_json) = serde_json::to_string_pretty(&[serde_json::json!({})])
             {
@@ -117,11 +116,11 @@ pub fn create_config_error_window(config_path: PathBuf) -> Result<(), Error> {
             }
         }
 
-        if let Some(window) = window_handle.upgrade() {
-            let _ = window.hide();
+        if let Some(handle) = window_handle.upgrade() {
+            _ = handle.hide();
         }
     });
-    println!("false");
+
     window.run()?;
     Ok(())
 }
@@ -139,13 +138,11 @@ pub fn load_config() -> (Config, PathBuf) {
     if config_path.exists()
         && let Ok(config_data) = fs::read_to_string(&config_path)
     {
-        if let Ok(existing) = serde_json::from_str::<Config>(&config_data) {
+        if let Ok(existing) = from_str::<Config>(&config_data) {
             (existing, config_path)
         } else {
-            match create_config_error_window(config_path) {
-                Ok(_) => (),
-                Err(e) => eprintln!("Error: {}", e),
-            }
+            _ = create_config_error_window(config_path);
+
             load_config()
         }
     } else {

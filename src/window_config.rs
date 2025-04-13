@@ -2,7 +2,7 @@ use crate::{
     win_utils::{convert_to_full, convert_to_human, make_window_transparent, WindowInfo},
     TransparencyRule,
 };
-use core::ffi::c_void;
+use core::{ffi::c_void, iter::once, mem::transmute};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use windows::{
@@ -34,49 +34,6 @@ pub struct WindowConfig {
     force: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     old_class: Option<String>,
-}
-
-impl Default for WindowConfig {
-    fn default() -> Self {
-        Self {
-            process_name: String::new(),
-            window_class: String::new(),
-            transparency: 255,
-            enabled: false,
-            force: false,
-            old_class: None,
-        }
-    }
-}
-
-impl From<&WindowConfig> for TransparencyRule {
-    fn from(config: &WindowConfig) -> Self {
-        TransparencyRule {
-            process_name: config.process_name.to_owned().into(),
-            window_class: config.window_class.to_owned().into(),
-            transparency: convert_to_human(config.transparency).into(),
-            enabled: config.enabled,
-            force: config.force,
-            old_class: config.old_class.to_owned().unwrap_or_default().into(),
-        }
-    }
-}
-
-impl From<TransparencyRule> for WindowConfig {
-    fn from(config: TransparencyRule) -> Self {
-        WindowConfig {
-            process_name: config.process_name.to_owned().into(),
-            window_class: config.window_class.to_owned().into(),
-            transparency: convert_to_full(config.transparency.try_into().unwrap_or(100)),
-            enabled: config.enabled,
-            force: config.force,
-            old_class: if config.old_class.is_empty() {
-                None
-            } else {
-                Some(config.old_class.into())
-            },
-        }
-    }
 }
 
 impl WindowConfig {
@@ -163,7 +120,7 @@ impl WindowConfig {
         let wide_class: Vec<u16> = self
             .get_window_class()
             .encode_utf16()
-            .chain(std::iter::once(0))
+            .chain(once(0))
             .collect();
 
         let class_ptr = PCWSTR::from_raw(wide_class.as_ptr());
@@ -180,18 +137,19 @@ impl WindowConfig {
                     {
                         let mut buffer = [0u8; 260];
                         let len = GetProcessImageFileNameA(process_handle, &mut buffer);
-                        let _ = CloseHandle(process_handle);
+                        _ = CloseHandle(process_handle);
 
                         if len > 0 {
                             let path_str =
                                 String::from_utf8_lossy(&buffer[..len as usize]).to_string();
-                            if let Some(name) = Path::new(&path_str)
+                            let name = Path::new(&path_str)
                                 .file_name()
                                 .and_then(|n| n.to_str())
-                                .map(|s| s.split('.').next().unwrap_or(s))
-                            {
+                                .map(|s| s.split('.').next().unwrap_or(s));
+
+                            if let Some(name) = name {
                                 if name == self.process_name {
-                                    handles.push(std::mem::transmute(hwnd));
+                                    handles.push(transmute(hwnd));
                                 }
                             }
                         }
@@ -290,5 +248,48 @@ fn find_window_by_class(target_class: &str) -> windows::core::Result<Option<HWND
         Ok(find_topmost_parent(found_hwnd))
     } else {
         Ok(None)
+    }
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            process_name: String::new(),
+            window_class: String::new(),
+            transparency: 255,
+            enabled: false,
+            force: false,
+            old_class: None,
+        }
+    }
+}
+
+impl From<&WindowConfig> for TransparencyRule {
+    fn from(config: &WindowConfig) -> Self {
+        TransparencyRule {
+            process_name: config.process_name.to_owned().into(),
+            window_class: config.window_class.to_owned().into(),
+            transparency: convert_to_human(config.transparency).into(),
+            enabled: config.enabled,
+            force: config.force,
+            old_class: config.old_class.to_owned().unwrap_or_default().into(),
+        }
+    }
+}
+
+impl From<TransparencyRule> for WindowConfig {
+    fn from(config: TransparencyRule) -> Self {
+        WindowConfig {
+            process_name: config.process_name.to_owned().into(),
+            window_class: config.window_class.to_owned().into(),
+            transparency: convert_to_full(config.transparency.try_into().unwrap_or(100)),
+            enabled: config.enabled,
+            force: config.force,
+            old_class: if config.old_class.is_empty() {
+                None
+            } else {
+                Some(config.old_class.into())
+            },
+        }
     }
 }

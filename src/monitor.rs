@@ -10,11 +10,11 @@ struct WindowHandleState {
 }
 
 impl WindowHandleState {
-    pub fn new(handle: isize, transparency: u8, enabled: bool) -> Self {
+    pub fn new(handle: isize) -> Self {
         Self {
             handle,
-            transparency,
-            enabled,
+            transparency: 1,
+            enabled: false,
         }
     }
 
@@ -61,7 +61,7 @@ impl WindowHandleState {
 */
 #[inline(always)]
 pub async fn monitor_windows(app_state: Arc<AppState>) {
-    let refresh_interval = Duration::from_millis(120);
+    let refresh_interval = Duration::from_millis(160);
 
     let mut config = app_state.get_config().await;
     let mut is_enabled = app_state.is_enabled().await;
@@ -107,7 +107,8 @@ fn refresh_window_cache(config: &Config, cache: &mut HashMap<String, Vec<WindowH
 
         for &handle in &handles {
             if !states.iter().any(|state| state.handle == handle) {
-                states.push(WindowHandleState::new(handle, 1, false));
+                // Add missing handles
+                states.push(WindowHandleState::new(handle));
             }
         }
         states.retain(|state| handles.contains(&state.handle));
