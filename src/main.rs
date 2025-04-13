@@ -13,21 +13,17 @@ mod win_utils;
 mod window_config;
 use app_state::AppState;
 use monitor::monitor_windows;
-use tray::setup_tray;
+use tray::{setup_tray, STARTUP_ID};
 use util::{load_config, Message};
-
 use win_utils::{change_startup, get_startup_state};
 slint::include_modules!();
 
 #[cfg(target_os = "windows")]
 #[tokio::main]
 async fn main() -> Result<()> {
-    use tray::STARTUP_ID;
-
+    let (config, config_path) = load_config();
     let (tx, mut rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =
         mpsc::unbounded_channel();
-
-    let (config, config_path) = load_config();
 
     let mut tray = setup_tray(tx.clone())?;
 
@@ -56,13 +52,13 @@ async fn main() -> Result<()> {
                     }
                 }
                 Message::Enable => {
-                    app_state.set_enable_state(true).await;
+                    app_state.enabled().await;
                 }
                 Message::Disable => {
-                    app_state.set_enable_state(false).await;
+                    app_state.disable().await;
                 }
                 Message::Startup => {
-                    let _ = change_startup(!get_startup_state());
+                    _ = change_startup(!get_startup_state());
                     let state_string = format!("Startup - {}", get_startup_state());
                     tray.inner_mut()
                         .set_menu_item_label(&state_string, STARTUP_ID)?;

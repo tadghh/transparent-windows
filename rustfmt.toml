@@ -1,0 +1,3 @@
+edition = "2021"
+merge_imports = true         # Merges multiple imports from the same crate
+imports_granularity = "Crate"  # Merges to the crate level where possible

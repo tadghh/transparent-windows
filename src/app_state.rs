@@ -22,12 +22,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Config, config_path: PathBuf) -> Self {
-        let (tx, _) = broadcast::channel(2);
-        let (txe, _) = broadcast::channel(2);
+        let (config_tx, _) = broadcast::channel(2);
+        let (enabled_tx, _) = broadcast::channel(2);
 
         Self {
-            config_tx: tx,
-            enabled_tx: txe,
+            config_tx,
+            enabled_tx,
             config: Arc::new(RwLock::new(config)),
             config_path,
             enabled: Arc::new(RwLock::new(true)),
@@ -48,6 +48,7 @@ impl AppState {
             }
         });
     }
+
     pub fn spawn_force_config(&self, value: WindowConfig) {
         let app_state: Arc<AppState> = Arc::new(self.clone());
 
@@ -116,7 +117,6 @@ impl AppState {
     ) -> Result<(), anyhow::Error> {
         let mut config = self.get_config_mut().await;
 
-        // Get the class name to use for parent lookup
         let lookup_class = window_config
             .get_old_classname()
             .clone()
@@ -134,6 +134,7 @@ impl AppState {
                 window_config.refresh_config();
                 window_config.set_old_classname(Some(lookup_class));
             } else {
+                // The config is no longer being forced to remove the parent class
                 window_config.set_window_class(&parent_class);
                 window_config.reset_config();
                 window_config.set_window_class(&lookup_class);
@@ -159,10 +160,8 @@ impl AppState {
     }
 
     fn remove_existing_config(&self, config: &mut Config, window_config: &WindowConfig) {
-        // Remove configuration by original key
         config.get_windows().remove(&window_config.get_key());
 
-        // Remove configuration by old class if it exists
         if let Some(old_class) = window_config.get_old_classname() {
             let key = format!("{}|{}", window_config.get_name(), old_class);
             config.get_windows().remove(&key);
@@ -181,7 +180,15 @@ impl AppState {
         *self.enabled.read().await
     }
 
-    pub async fn set_enable_state(&self, new_state: bool) {
+    pub async fn enabled(&self) {
+        self.set_enable_state(true).await
+    }
+
+    pub async fn disable(&self) {
+        self.set_enable_state(false).await
+    }
+
+    async fn set_enable_state(&self, new_state: bool) {
         *self.enabled.write().await = new_state;
 
         self.enabled_tx

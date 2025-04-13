@@ -1,23 +1,24 @@
 use core::ffi::c_void;
 use std::path::Path;
 
-use crate::win_utils::WindowInfo;
+use crate::{
+    win_utils::{convert_to_full, convert_to_human, make_window_transparent, WindowInfo},
+    TransparencyRule,
+};
 use serde::{Deserialize, Serialize};
 use windows::core::PCWSTR;
 
-use windows::Win32::Foundation::CloseHandle;
-use windows::Win32::System::ProcessStatus::GetProcessImageFileNameA;
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 use windows::Win32::{
-    Foundation::{BOOL, HWND, LPARAM, MAX_PATH},
+    Foundation::{CloseHandle, BOOL, HWND, LPARAM, MAX_PATH},
+    System::{
+        ProcessStatus::GetProcessImageFileNameA,
+        Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    },
     UI::WindowsAndMessaging::{
         EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetParent,
+        GetWindowThreadProcessId,
     },
 };
-
-use crate::win_utils::{convert_to_full, convert_to_human, make_window_transparent};
-use crate::TransparencyRule;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WindowConfig {
@@ -154,6 +155,7 @@ impl WindowConfig {
             _ = make_window_transparent(HWND(handle as *mut c_void), self.get_transparency());
         }
     }
+
     /*
       Returns all the current handles for the classname
     */

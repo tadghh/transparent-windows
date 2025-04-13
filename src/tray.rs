@@ -32,6 +32,9 @@ pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
     Ok(tray)
 }
 
+/*
+ Just adds another tray item. Keeps the above method clean
+*/
 fn add_tray_menu_item(
     tray: &mut TrayItem,
     label: &'static str,
