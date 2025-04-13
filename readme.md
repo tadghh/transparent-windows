@@ -12,10 +12,10 @@ Allows you to **set** the **transparency** of programs on **Windows**
 
 ## Features
 
-- System tray integration
+- System tray control panel
 - Per-window transparency control
-- Supports both standard and admin-level windows
-- Memory efficient (~2MB idle, ~30MB active)
+- Supports both standard and admin-level windows (when run as admin)
+- Memory efficient
 
 ## Usage
 
@@ -34,7 +34,9 @@ Allows you to **set** the **transparency** of programs on **Windows**
 ```rust
 cargo build --release
 ```
+
 ## Download
+
 You can download a compiled version from the releases section on the right hand side.
 
 ## Examples
