@@ -97,13 +97,35 @@ impl AppState {
     ) -> Result<(), anyhow::Error> {
         let mut config = self.get_config_mut().await;
 
+        // Check if we need to update any existing config with old_class that matches this one
+        for existing_config in config.get_windows().values_mut() {
+            if let Some(old_class) = existing_config.get_old_classname() {
+                if existing_config.get_name() == window_config.get_name()
+                    && window_config.get_window_class() == old_class
+                {
+                    // Update the existing config
+                    existing_config.set_enabled(window_config.is_enabled());
+                    existing_config.set_transparency(window_config.get_transparency());
+
+                    let config_json = serde_json::to_string_pretty(&config.to_owned())?;
+
+                    self.config_tx.send(config.to_owned())?;
+                    fs::write(self.get_config_path(), config_json)?;
+
+                    return Ok(());
+                }
+            }
+        }
+
+        // If no existing config needed updating, insert the new one
         config
             .get_windows()
             .insert(window_config.get_key(), window_config);
 
+        // Save the updated config
         let config_json = serde_json::to_string_pretty(&config.to_owned())?;
-        self.config_tx.send(config.to_owned())?;
 
+        self.config_tx.send(config.to_owned())?;
         fs::write(self.get_config_path(), config_json)?;
 
         Ok(())
@@ -115,44 +137,49 @@ impl AppState {
     ) -> Result<(), anyhow::Error> {
         let mut config = self.get_config_mut().await;
 
-        let lookup_class = window_config
-            .get_old_classname()
-            .clone()
-            .unwrap_or_else(|| window_config.get_window_class().to_owned());
+        let lookup_class = window_config.get_window_class().to_owned();
 
         // Try to find parent class
         if let Ok(Some(parent_info)) = find_parent_from_child_class(&lookup_class) {
             let parent_class = parent_info.1;
 
-            // Remove existing configuration
-            self.remove_existing_config(&mut config, &window_config);
-
             if window_config.is_forced() {
+                self.remove_existing_config(&mut config, &window_config);
                 window_config.set_window_class(&parent_class);
-                window_config.refresh_config();
+                if window_config.is_enabled() {
+                    window_config.refresh_config();
+                }
                 window_config.set_old_classname(Some(lookup_class));
+
+                config
+                    .get_windows()
+                    .insert(window_config.get_key(), window_config.clone());
             } else {
-                // The config is no longer being forced to remove the parent class
-                window_config.set_window_class(&parent_class);
-                window_config.reset_config();
-                window_config.set_window_class(&lookup_class);
-                window_config.set_old_classname(None);
+                for existing_config in config.get_windows().values_mut() {
+                    if let Some(old_class) = existing_config.get_old_classname() {
+                        if existing_config.get_name() == window_config.get_name()
+                            && window_config.get_window_class() == old_class
+                        {
+                            if !window_config.is_forced() {
+                                existing_config.set_enabled(false);
+                                existing_config.unforce_windows_config();
+                                existing_config.set_window_class(window_config.get_window_class());
+                            } else {
+                                existing_config.set_enabled(window_config.is_enabled());
+                            }
 
-                // Remove parent configuration
-                let parent_key = format!("{}|{}", window_config.get_name(), parent_class);
-                config.get_windows().remove(&parent_key);
+                            existing_config.set_transparency(window_config.get_transparency());
+                            existing_config.set_forced(window_config.is_forced());
+                        }
+                    }
+                }
             }
+
+            let config_json = serde_json::to_string_pretty(&config.to_owned())?;
+            self.config_tx.send(config.to_owned())?;
+
+            fs::write(self.get_config_path(), config_json)?;
         }
-
-        // Update configuration
-        config
-            .get_windows()
-            .insert(window_config.get_key(), window_config);
-
-        let config_json = serde_json::to_string_pretty(&config.to_owned())?;
-        self.config_tx.send(config.to_owned())?;
-
-        fs::write(self.get_config_path(), config_json)?;
 
         Ok(())
     }

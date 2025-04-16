@@ -281,7 +281,7 @@ pub async fn create_percentage_window(
 /*
   Sets the transparency of the handles window.
 */
-pub fn make_window_transparent(window_handle: HWND, transparency: u8) -> Result<(), anyhow::Error> {
+pub fn set_window_alpha(window_handle: HWND, transparency: u8) -> Result<(), anyhow::Error> {
     unsafe {
         SetWindowLongW(
             window_handle,

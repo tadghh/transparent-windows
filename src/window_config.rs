@@ -1,5 +1,5 @@
 use crate::{
-    win_utils::{convert_to_full, convert_to_human, make_window_transparent, WindowInfo},
+    win_utils::{convert_to_full, convert_to_human, set_window_alpha, WindowInfo},
     TransparencyRule,
 };
 use core::{ffi::c_void, iter::once, mem::transmute};
@@ -102,14 +102,21 @@ impl WindowConfig {
     pub fn reset_config(&self) {
         let handles = self.get_window_hwnds();
         for handle in handles {
-            _ = make_window_transparent(HWND(handle as *mut c_void), 255);
+            _ = set_window_alpha(HWND(handle as *mut c_void), 255);
         }
     }
 
     pub fn refresh_config(&self) {
         let handles = self.get_window_hwnds();
         for handle in handles {
-            _ = make_window_transparent(HWND(handle as *mut c_void), self.get_transparency());
+            _ = set_window_alpha(HWND(handle as *mut c_void), self.get_transparency());
+        }
+    }
+
+    pub fn unforce_windows_config(&self) {
+        let handles = self.get_window_hwnds();
+        for handle in handles {
+            _ = set_window_alpha(HWND(handle as *mut c_void), 255);
         }
     }
 
