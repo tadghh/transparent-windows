@@ -1,4 +1,8 @@
-use crate::{app_state::AppState, util::Config, win_utils::set_window_alpha};
+use crate::{
+    app_state::AppState,
+    util::Config,
+    win_utils::{get_window_transparency, set_window_alpha},
+};
 use core::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
@@ -31,7 +35,8 @@ impl WindowHandleState {
     }
 
     pub fn get_transparency(&self) -> u8 {
-        self.transparency
+        get_window_transparency(self.get_handle()).unwrap()
+        // self.transparency
     }
 
     pub fn update_state(&mut self, transparency: u8, enabled: bool) {

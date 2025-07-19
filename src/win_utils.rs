@@ -31,9 +31,9 @@ use windows::{
         UI::{
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
             WindowsAndMessaging::{
-                GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowThreadProcessId,
-                SetLayeredWindowAttributes, SetWindowLongW, WindowFromPoint, GWL_EXSTYLE,
-                LAYERED_WINDOW_ATTRIBUTES_FLAGS, WS_EX_LAYERED,
+                GetClassNameW, GetCursorPos, GetLayeredWindowAttributes, GetWindowLongW,
+                GetWindowThreadProcessId, SetLayeredWindowAttributes, SetWindowLongW,
+                WindowFromPoint, GWL_EXSTYLE, LAYERED_WINDOW_ATTRIBUTES_FLAGS, WS_EX_LAYERED,
             },
         },
     },
@@ -300,6 +300,28 @@ pub fn set_window_alpha(window_handle: HWND, transparency: u8) -> Result<(), any
         }
     }
     Ok(())
+}
+
+pub fn get_window_transparency(window_handle: HWND) -> Result<u8, anyhow::Error> {
+    unsafe {
+        let mut color_key = COLORREF::default();
+        let mut alpha: u8 = 0;
+        let mut flags = LAYERED_WINDOW_ATTRIBUTES_FLAGS::default();
+        SetWindowLongW(
+            window_handle,
+            GWL_EXSTYLE,
+            GetWindowLongW(window_handle, GWL_EXSTYLE) | WS_EX_LAYERED.0 as i32,
+        );
+        match GetLayeredWindowAttributes(
+            window_handle,
+            Some(&mut color_key),
+            Some(&mut alpha),
+            Some(&mut flags),
+        ) {
+            Ok(_) => return Ok(alpha),
+            Err(err) => Err(anyhow!("Failed to get process handle transparency {}", err)),
+        }
+    }
 }
 
 /*
