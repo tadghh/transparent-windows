@@ -1,5 +1,6 @@
 #[cfg(any(unix, windows))]
 [toolchain]
-channel="nightly-2025-04-12"
+versioned="1.90.0"
+channel="nightly"
 targets=["x86_64-pc-windows-msvc","i686-pc-windows-msvc"]
 components=["rust-src"]
