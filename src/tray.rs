@@ -1,4 +1,4 @@
-use crate::{get_startup_state, util::Message};
+use crate::{platform::wm, util::Message};
 use tokio::sync::mpsc::UnboundedSender;
 use tray_item::{IconSource, TIError, TrayItem};
 
@@ -6,7 +6,8 @@ use tray_item::{IconSource, TIError, TrayItem};
 pub const STARTUP_ID: u32 = 5;
 
 pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
-    let mut tray = TrayItem::new("WinAlpha", IconSource::Resource("tray-default"))?;
+    let icon = IconSource::Resource("tray-default");
+    let mut tray = TrayItem::new("WinAlpha", icon)?;
 
     add_tray_menu_item(&mut tray, "Add", &tx, Message::Add)?;
     add_tray_menu_item(&mut tray, "Rules", &tx, Message::Rules)?;
@@ -15,9 +16,9 @@ pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
 
     tray.inner_mut().add_separator()?;
 
-    let startup_label = format!("Startup: {}", get_startup_state());
-
+    let startup_label = format!("Startup: {}", wm().get_autostart_state());
     let startup_tx = tx.clone();
+
     tray.add_menu_item(&startup_label, move || {
         if let Err(e) = startup_tx.send(Message::Startup) {
             eprintln!("Failed to send Startup message: {}", e);
@@ -25,7 +26,6 @@ pub fn setup_tray(tx: UnboundedSender<Message>) -> Result<TrayItem, TIError> {
     })?;
 
     tray.inner_mut().add_separator()?;
-
     add_tray_menu_item(&mut tray, "Quit", &tx, Message::Quit)?;
 
     Ok(tray)
