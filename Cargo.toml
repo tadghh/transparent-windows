@@ -1,7 +1,7 @@
 [package]
 authors    =["Ethan Henry"]
 description="Set the transparency of windows, for Windows!"
-edition    ="2021"
+edition    ="2024"
 keywords   =["transparency", "windows"]
 name       ="win_alpha"
 readme     ="readme.md"
