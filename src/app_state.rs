@@ -1,12 +1,14 @@
 use crate::{
-    transparency::create_rules_window,
-    util::Config,
-    win_utils::{self, create_percentage_window},
-    window_config::{find_parent_from_child_class, WindowConfig},
     TransparencyRule,
+    platform::{RuleSpec, wm},
+    util::Config,
+    window_config::WindowConfig,
 };
 use std::{fs, path::PathBuf, sync::Arc};
-use tokio::sync::{broadcast, RwLock};
+use tokio::{
+    runtime::Handle,
+    sync::{RwLock, broadcast},
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -15,11 +17,12 @@ pub struct AppState {
     config: Arc<RwLock<Config>>,
     config_path: PathBuf,
     enabled: Arc<RwLock<bool>>,
+    runtime: Handle,
     pub shutdown: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
-    pub fn new(config: Config, config_path: PathBuf) -> Self {
+    pub fn new(config: Config, config_path: PathBuf, runtime: Handle) -> Self {
         let (config_tx, _) = broadcast::channel(2);
         let (enabled_tx, _) = broadcast::channel(2);
 
@@ -29,18 +32,20 @@ impl AppState {
             config: Arc::new(RwLock::new(config)),
             config_path,
             enabled: Arc::new(RwLock::new(true)),
+            runtime,
             shutdown: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
-    pub async fn quit(&self) {
-        self.shutdown.notify_waiters();
+    /// Handle to the background tokio runtime, for spawning from UI callbacks.
+    pub fn runtime(&self) -> &Handle {
+        &self.runtime
     }
 
     pub fn spawn_update_config(&self, value: WindowConfig) {
         let app_state = Arc::new(self.clone());
 
-        tokio::spawn(async move {
+        self.runtime.spawn(async move {
             if let Err(e) = app_state.add_window_config(value).await {
                 eprintln!("Failed to update window config: {}", e);
             }
@@ -50,7 +55,7 @@ impl AppState {
     pub fn spawn_force_config(&self, value: WindowConfig) {
         let app_state: Arc<AppState> = Arc::new(self.clone());
 
-        tokio::spawn(async move {
+        self.runtime.spawn(async move {
             if let Err(e) = app_state.add_force_config(value).await {
                 eprintln!("Failed to update window config: {}", e);
             }
@@ -66,25 +71,12 @@ impl AppState {
             .collect()
     }
 
-    pub async fn add_window_rule(&self) -> Result<(), anyhow::Error> {
-        let window = win_utils::get_window_under_cursor().expect("Non failure, get window cursor");
-        create_percentage_window(window, Arc::new(self.clone())).await
-    }
-
     pub async fn get_config(&self) -> Config {
         self.config.read().await.clone()
     }
 
     pub fn get_config_path(&self) -> String {
-        self.config_path
-            .clone()
-            .into_os_string()
-            .into_string()
-            .expect("shut")
-    }
-
-    pub async fn show_rules_window(&self) -> Result<(), std::fmt::Error> {
-        create_rules_window(Arc::new(self.clone())).await
+        self.config_path.to_string_lossy().into_owned()
     }
 
     pub async fn get_config_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, Config> {
@@ -105,13 +97,9 @@ impl AppState {
                 {
                     // Update the existing config
                     existing_config.set_enabled(window_config.is_enabled());
-                    existing_config.set_transparency(window_config.get_transparency());
+                    existing_config.set_alpha(window_config.get_alpha());
 
-                    let config_json = serde_json::to_string_pretty(&config.to_owned())?;
-
-                    self.config_tx.send(config.to_owned())?;
-                    fs::write(self.get_config_path(), config_json)?;
-
+                    self.persist_and_broadcast(&config).await?;
                     return Ok(());
                 }
             }
@@ -122,13 +110,7 @@ impl AppState {
             .get_windows()
             .insert(window_config.get_key(), window_config);
 
-        // Save the updated config
-        let config_json = serde_json::to_string_pretty(&config.to_owned())?;
-
-        self.config_tx.send(config.to_owned())?;
-        fs::write(self.get_config_path(), config_json)?;
-
-        Ok(())
+        self.persist_and_broadcast(&config).await
     }
 
     pub async fn add_force_config(
@@ -140,7 +122,7 @@ impl AppState {
         let lookup_class = window_config.get_window_class().to_owned();
 
         // Try to find parent class
-        if let Ok(Some(parent_info)) = find_parent_from_child_class(&lookup_class) {
+        if let Ok(Some(parent_info)) = wm().find_parent_from_child_class(&lookup_class) {
             let parent_class = parent_info.1;
 
             if window_config.is_forced() {
@@ -168,17 +150,14 @@ impl AppState {
                                 existing_config.set_enabled(window_config.is_enabled());
                             }
 
-                            existing_config.set_transparency(window_config.get_transparency());
+                            existing_config.set_alpha(window_config.get_alpha());
                             existing_config.set_forced(window_config.is_forced());
                         }
                     }
                 }
             }
 
-            let config_json = serde_json::to_string_pretty(&config.to_owned())?;
-            self.config_tx.send(config.to_owned())?;
-
-            fs::write(self.get_config_path(), config_json)?;
+            self.persist_and_broadcast(&config).await?;
         }
 
         Ok(())
@@ -219,5 +198,48 @@ impl AppState {
         self.enabled_tx
             .send(new_state)
             .expect("enabled sender failed");
+
+        let config = self.get_config().await;
+        self.sync_compositor(&config, new_state);
+    }
+
+    /// Build the active rule set: enabled rules, only when the global toggle is on.
+    fn rules_from(config: &Config, enabled: bool) -> Vec<RuleSpec> {
+        if !enabled {
+            return Vec::new();
+        }
+        config
+            .get_windows_non_mut()
+            .values()
+            .filter(|window| window.is_enabled())
+            .map(|window| RuleSpec {
+                window_class: window.get_window_class().to_owned(),
+                alpha: window.get_alpha(),
+            })
+            .collect()
+    }
+
+    async fn persist_and_broadcast(&self, config: &Config) -> Result<(), anyhow::Error> {
+        let config_json = serde_json::to_string_pretty(config)?;
+        fs::write(self.get_config_path(), config_json)?;
+
+        let _ = self.config_tx.send(config.clone());
+
+        let enabled = self.is_enabled().await;
+        self.sync_compositor(config, enabled);
+
+        Ok(())
+    }
+
+    fn sync_compositor(&self, config: &Config, enabled: bool) {
+        if let Err(e) = wm().sync_rules(&Self::rules_from(config, enabled)) {
+            eprintln!("Failed to sync compositor transparency rules: {e}");
+        }
+    }
+
+    pub async fn sync_rules_now(&self) {
+        let config = self.get_config().await;
+        let enabled = self.is_enabled().await;
+        self.sync_compositor(&config, enabled);
     }
 }
