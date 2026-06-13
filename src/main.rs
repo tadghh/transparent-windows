@@ -1,67 +1,110 @@
 // #![windows_subsystem = "windows"]
-#![feature(let_chains)]
+#![cfg_attr(test, feature(test))]
+#[cfg(test)]
+extern crate test;
 use anyhow::Result;
 use app_state::AppState;
 use monitor::monitor_windows;
+use platform::wm;
 use std::sync::Arc;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tray::{setup_tray, STARTUP_ID};
-use util::{load_config, Message};
-use win_utils::{change_startup, get_startup_state};
+use tokio::{
+    runtime::Handle,
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+};
+use tray::{STARTUP_ID, setup_tray};
+use util::{Message, load_config, show_config_error_window};
 mod app_state;
 mod monitor;
+mod platform;
 mod transparency;
 mod tray;
+mod ui;
 mod util;
-mod win_utils;
 mod window_config;
 
 slint::include_modules!();
 
-#[cfg(target_os = "windows")]
-#[tokio::main]
-async fn main() -> Result<()> {
-    let (config, config_path) = load_config();
-    let (tx, mut rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =
+fn main() -> Result<()> {
+    platform::init();
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let (config, config_path, config_invalid) = load_config();
+    if config_invalid {
+        show_config_error_window(config_path.clone());
+    }
+
+    let (tx, rx): (UnboundedSender<Message>, UnboundedReceiver<Message>) =
         mpsc::unbounded_channel();
 
-    let mut tray = setup_tray(tx.clone())?;
+    let app_state = Arc::new(AppState::new(
+        config,
+        config_path.clone(),
+        runtime.handle().clone(),
+    ));
 
-    let app_state = Arc::new(AppState::new(config, config_path));
-    let clone_state = app_state.clone();
+    runtime.spawn(monitor_windows(app_state.clone()));
 
-    tokio::spawn(async move {
-        monitor_windows(clone_state).await;
-    });
+    {
+        let startup_state = app_state.clone();
+        runtime.spawn(async move { startup_state.sync_rules_now().await });
+    }
 
-    loop {
-        if let Some(event) = rx.recv().await {
-            match event {
-                Message::Quit => {
-                    app_state.quit().await;
-                    return Ok(());
-                }
-                Message::Rules => {
-                    if let Err(e) = app_state.show_rules_window().await {
-                        eprintln!("Error in rules window: {}", e);
-                    }
-                }
-                Message::Add => {
-                    if let Err(e) = app_state.add_window_rule().await {
-                        eprintln!("Error in selection window: {}", e);
-                    }
-                }
-                Message::Enable => {
-                    app_state.enabled().await;
-                }
-                Message::Disable => {
-                    app_state.disable().await;
-                }
-                Message::Startup => {
-                    _ = change_startup(!get_startup_state());
-                    let state_string = format!("Startup - {}", get_startup_state());
-                    tray.inner_mut()
-                        .set_menu_item_label(&state_string, STARTUP_ID)?;
+    let loop_state = app_state.clone();
+    let loop_handle = runtime.handle().clone();
+
+    std::thread::spawn(move || message_loop(rx, tx, loop_state, loop_handle));
+    slint::run_event_loop_until_quit()?;
+
+    Ok(())
+}
+
+/// Receives tray messages and dispatches them. UI work is marshalled onto the
+/// event-loop thread with `invoke_from_event_loop`; async work is driven on the
+/// background runtime via `handle`.
+fn message_loop(
+    mut rx: UnboundedReceiver<Message>,
+    tx: UnboundedSender<Message>,
+    app_state: Arc<AppState>,
+    handle: Handle,
+) {
+    let mut tray = match setup_tray(tx) {
+        Ok(tray) => tray,
+        Err(e) => {
+            eprintln!("Failed to set up tray: {e}");
+            let _ = slint::quit_event_loop();
+            return;
+        }
+    };
+
+    while let Some(event) = rx.blocking_recv() {
+        match event {
+            Message::Quit => {
+                let _ = wm().sync_rules(&[]);
+                app_state.shutdown.notify_waiters();
+                let _ = slint::quit_event_loop();
+                break;
+            }
+            Message::Rules => {
+                let rules = handle.block_on(app_state.get_window_rules());
+                let state = app_state.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    transparency::show_rules_window(rules, state);
+                });
+            }
+            Message::Add => transparency::start_add_flow(app_state.clone()),
+            Message::Enable => handle.block_on(app_state.enabled()),
+            Message::Disable => handle.block_on(app_state.disable()),
+            Message::Startup => {
+                _ = wm().set_autostart(!wm().get_autostart_state());
+                let state_string = format!("Startup - {}", wm().get_autostart_state());
+                if let Err(e) = tray
+                    .inner_mut()
+                    .set_menu_item_label(&state_string, STARTUP_ID)
+                {
+                    eprintln!("Failed to update startup label: {e}");
                 }
             }
         }
