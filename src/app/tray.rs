@@ -16,13 +16,9 @@ pub enum Message {
     Quit,
     Add,
     Rules,
-    Enable,
-    Disable,
+    Active,
     Startup,
 }
-
-// Menu index of the "Startup" item, used to relabel it when autostart toggles.
-const STARTUP_ID: u32 = 5;
 
 /// The build-time ARGB pixmap for the Linux tray (see `build.rs`).
 #[cfg(unix)]
@@ -48,28 +44,48 @@ fn tray_icon() -> IconSource {
     }
 }
 
-fn setup_tray(tx: UnboundedSender<Message>, app_state: &AppState) -> Result<TrayItem, TIError> {
+/// Backend-assigned ids for the self-relabeling tray items, captured when the
+/// menu is built so they can be updated when their state toggles. The ids can't
+/// be hardcoded: the ksni and Windows backends number separators differently,
+/// so a fixed index isn't portable across platforms.
+struct MenuIds {
+    active: u32,
+    startup: u32,
+}
+
+fn setup_tray(
+    tx: UnboundedSender<Message>,
+    app_state: &AppState,
+) -> Result<(TrayItem, MenuIds), TIError> {
     let mut tray = TrayItem::new(crate::identity::APP_NAME, tray_icon())?;
 
     add_tray_menu_item(&mut tray, "Add", &tx, Message::Add)?;
     add_tray_menu_item(&mut tray, "Rules", &tx, Message::Rules)?;
-    add_tray_menu_item(&mut tray, "Enable", &tx, Message::Enable)?;
-    add_tray_menu_item(&mut tray, "Disable", &tx, Message::Disable)?;
+
+    let active_tx = tx.clone();
+    let active = tray
+        .inner_mut()
+        .add_menu_item_with_id(&app_state.active_label(), move || {
+            if let Err(e) = active_tx.send(Message::Active) {
+                eprintln!("Failed to send Active message: {}", e);
+            }
+        })?;
 
     tray.inner_mut().add_separator()?;
 
     let startup_tx = tx.clone();
-
-    tray.add_menu_item(&app_state.startup_label(), move || {
-        if let Err(e) = startup_tx.send(Message::Startup) {
-            eprintln!("Failed to send Startup message: {}", e);
-        }
-    })?;
+    let startup = tray
+        .inner_mut()
+        .add_menu_item_with_id(&app_state.startup_label(), move || {
+            if let Err(e) = startup_tx.send(Message::Startup) {
+                eprintln!("Failed to send Startup message: {}", e);
+            }
+        })?;
 
     tray.inner_mut().add_separator()?;
     add_tray_menu_item(&mut tray, "Quit", &tx, Message::Quit)?;
 
-    Ok(tray)
+    Ok((tray, MenuIds { active, startup }))
 }
 
 fn add_tray_menu_item(
@@ -104,7 +120,7 @@ fn message_loop(
     app_state: Arc<AppState>,
     handle: Handle,
 ) {
-    let mut tray = match setup_tray(tx, &app_state) {
+    let (mut tray, menu_ids) = match setup_tray(tx, &app_state) {
         Ok(tray) => tray,
         Err(e) => {
             eprintln!("Failed to set up tray: {e}");
@@ -131,12 +147,19 @@ fn message_loop(
                 });
             }
             Message::Add => transparency::start_add_flow(app_state.clone()),
-            Message::Enable => handle.block_on(app_state.enabled()),
-            Message::Disable => handle.block_on(app_state.disable()),
+            Message::Active => {
+                let label = handle.block_on(app_state.toggle_active());
+                if let Err(e) = tray
+                    .inner_mut()
+                    .set_menu_item_label(&label, menu_ids.active)
+                {
+                    eprintln!("Failed to update active label: {e}");
+                }
+            }
             Message::Startup => {
                 if let Err(e) = tray
                     .inner_mut()
-                    .set_menu_item_label(&app_state.toggle_autostart(), STARTUP_ID)
+                    .set_menu_item_label(&app_state.toggle_autostart(), menu_ids.startup)
                 {
                     eprintln!("Failed to update startup label: {e}");
                 }

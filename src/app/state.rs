@@ -143,12 +143,17 @@ impl AppState {
         self.enabled.load(Ordering::Relaxed)
     }
 
-    pub async fn enabled(&self) {
-        self.set_enable_state(true).await
+    /// The tray's active menu label, reflecting whether transparency rules are
+    /// currently being applied.
+    pub fn active_label(&self) -> String {
+        format!("Active: {}", self.is_enabled())
     }
 
-    pub async fn disable(&self) {
-        self.set_enable_state(false).await
+    /// Flip the enabled state and return the updated [`Self::active_label`], so
+    /// the caller can relabel its menu item to match.
+    pub async fn toggle_active(&self) -> String {
+        self.set_enable_state(!self.is_enabled()).await;
+        self.active_label()
     }
 
     async fn set_enable_state(&self, new_state: bool) {
