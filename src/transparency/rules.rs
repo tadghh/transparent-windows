@@ -1,26 +1,31 @@
 use crate::{
     TransparencyRule,
-    platform::{WindowHandle, WindowInfo, WindowManager, convert_to_full, convert_to_human, wm},
+    platform::{
+        Opacity, PollingOpacity, WindowHandle, WindowInfo, WindowManager, alpha_to_percent,
+        percent_to_alpha,
+    },
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct WindowConfig {
-    #[serde(default)]
+// Container-level default: any field missing from the stored JSON is filled from
+// `WindowRule::default()` (notably `alpha = 255`, i.e. opaque). Per-field
+// `#[serde(default)]` would instead use the field *type's* default — `alpha` 0,
+// a fully transparent window — so a hand-edited/partial rule must default to
+// opaque here, not invisible.
+#[serde(default)]
+pub struct WindowRule {
     process_name: String,
-    #[serde(default)]
     window_class: String,
-    #[serde(rename = "transparency", default)]
+    #[serde(rename = "transparency")]
     alpha: u8,
-    #[serde(default)]
     enabled: bool,
-    #[serde(default)]
     force: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     old_class: Option<String>,
 }
 
-impl WindowConfig {
+impl WindowRule {
     pub fn new(info: &WindowInfo, alpha: u8) -> Self {
         Self {
             process_name: info.process_name.to_owned(),
@@ -36,8 +41,8 @@ impl WindowConfig {
         self.process_name.to_owned() + "|" + &self.window_class
     }
 
-    pub fn get_name(&self) -> String {
-        self.process_name.clone()
+    pub fn get_name(&self) -> &str {
+        &self.process_name
     }
 
     pub fn set_name(&mut self, new_process_name: String) {
@@ -83,32 +88,30 @@ impl WindowConfig {
         self.force
     }
 
-    pub fn reset_config(&self) {
-        let wm = wm();
-        for handle in self.get_window_hwnds(wm) {
-            _ = wm.set_window_alpha(handle, 255);
-        }
-    }
-
-    pub fn refresh_config(&self) {
-        let wm = wm();
+    pub fn refresh(&self, wm: &dyn WindowManager) {
+        // Only polling backends apply per-window alpha; compositor backends
+        // enforce opacity through their own rule set, so there's nothing to do.
+        let Opacity::Polling(wm) = wm.opacity() else {
+            return;
+        };
         let alpha = self.get_alpha();
-        for handle in self.get_window_hwnds(wm) {
+        for handle in self.get_window_handles(wm) {
             _ = wm.set_window_alpha(handle, alpha);
         }
     }
 
-    pub fn unforce_windows_config(&self) {
-        let wm = wm();
-        for handle in self.get_window_hwnds(wm) {
+    /// Restore every matching window to fully opaque (used when a rule is
+    /// disabled or un-forced).
+    pub fn unforce(&self, wm: &dyn WindowManager) {
+        let Opacity::Polling(wm) = wm.opacity() else {
+            return;
+        };
+        for handle in self.get_window_handles(wm) {
             _ = wm.set_window_alpha(handle, 255);
         }
     }
 
-    /*
-      Returns all the current handles matching this rule's class and process.
-    */
-    pub fn get_window_hwnds(&self, wm: &dyn WindowManager) -> Vec<WindowHandle> {
+    pub fn get_window_handles(&self, wm: &dyn PollingOpacity) -> Vec<WindowHandle> {
         wm.enumerate_windows(&self.process_name, &self.window_class)
     }
 
@@ -117,7 +120,7 @@ impl WindowConfig {
     }
 }
 
-impl Default for WindowConfig {
+impl Default for WindowRule {
     fn default() -> Self {
         Self {
             process_name: String::new(),
@@ -130,31 +133,37 @@ impl Default for WindowConfig {
     }
 }
 
-impl From<&WindowConfig> for TransparencyRule {
-    fn from(config: &WindowConfig) -> Self {
+// Bridge between the persisted model (`WindowRule`) and the Slint UI type
+// (`TransparencyRule`): alpha is stored 0-255 but shown to the user as a percentage.
+impl From<&WindowRule> for TransparencyRule {
+    fn from(rule: &WindowRule) -> Self {
         TransparencyRule {
-            process_name: config.process_name.to_owned().into(),
-            window_class: config.window_class.to_owned().into(),
-            transparency: convert_to_human(config.alpha).into(),
-            enabled: config.enabled,
-            force: config.force,
-            old_class: config.old_class.to_owned().unwrap_or_default().into(),
+            process_name: rule.process_name.to_owned().into(),
+            window_class: rule.window_class.to_owned().into(),
+            transparency: alpha_to_percent(rule.alpha).into(),
+            enabled: rule.enabled,
+            force: rule.force,
+            old_class: rule.old_class.to_owned().unwrap_or_default().into(),
         }
     }
 }
 
-impl From<TransparencyRule> for WindowConfig {
-    fn from(config: TransparencyRule) -> Self {
-        WindowConfig {
-            process_name: config.process_name.to_owned().into(),
-            window_class: config.window_class.to_owned().into(),
-            alpha: convert_to_full(config.transparency),
-            enabled: config.enabled,
-            force: config.force,
-            old_class: if config.old_class.is_empty() {
+#[cfg(test)]
+#[path = "../tests/rules.rs"]
+mod tests;
+
+impl From<TransparencyRule> for WindowRule {
+    fn from(rule: TransparencyRule) -> Self {
+        WindowRule {
+            process_name: rule.process_name.into(),
+            window_class: rule.window_class.into(),
+            alpha: percent_to_alpha(rule.transparency),
+            enabled: rule.enabled,
+            force: rule.force,
+            old_class: if rule.old_class.is_empty() {
                 None
             } else {
-                Some(config.old_class.into())
+                Some(rule.old_class.into())
             },
         }
     }
