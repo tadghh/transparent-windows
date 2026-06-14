@@ -1,4 +1,7 @@
-use super::{CursorPoint, WindowHandle, WindowInfo, WindowManager};
+use super::{
+    CursorPicker, CursorPoint, Opacity, OperatingSystem, PickHover, PollingOpacity, WindowHandle,
+    WindowInfo, WindowManager, run_cursor_pick,
+};
 use anyhow::{Result, anyhow};
 use core::ffi::c_void;
 use std::{env::current_exe, iter::once};
@@ -34,9 +37,7 @@ use windows::{
     core::{PCSTR, PCWSTR, PWSTR, w},
 };
 
-// TODO finish abstraction
-
-// This is "left click"
+// GetAsyncKeyState sets this high bit while the key is held down.
 const KEY_PRESSED: i16 = 0x8000u16 as i16;
 
 #[inline]
@@ -49,6 +50,20 @@ fn from_hwnd(hwnd: HWND) -> WindowHandle {
     WindowHandle(hwnd.0 as u64)
 }
 
+/// RAII guard that `CloseHandle`s an owned Win32 handle on drop, so every exit
+/// path — including `?` early returns — releases it instead of leaking.
+struct OwnedHandle(HANDLE);
+
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        if !self.0.is_invalid() {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+}
+
 pub struct Win32Manager;
 
 impl Win32Manager {
@@ -57,10 +72,7 @@ impl Win32Manager {
     }
 }
 
-impl WindowManager for Win32Manager {
-    /*
-      Sets the transparency of the handles window.
-    */
+impl PollingOpacity for Win32Manager {
     fn set_window_alpha(&self, handle: WindowHandle, alpha: u8) -> Result<()> {
         let window_handle = to_hwnd(handle);
         unsafe {
@@ -83,9 +95,6 @@ impl WindowManager for Win32Manager {
         Ok(())
     }
 
-    /*
-      Returns all the current handles for the classname that also match the process.
-    */
     fn enumerate_windows(&self, process_name: &str, window_class: &str) -> Vec<WindowHandle> {
         let wide_class: Vec<u16> = window_class.encode_utf16().chain(once(0)).collect();
 
@@ -130,19 +139,9 @@ impl WindowManager for Win32Manager {
 
         handles
     }
+}
 
-    fn find_parent_from_child_class(
-        &self,
-        child_class: &str,
-    ) -> Result<Option<(WindowHandle, String)>> {
-        let child_hwnd = match find_window_by_class(child_class)? {
-            Some(hwnd) => hwnd,
-            None => return Ok(None),
-        };
-
-        Ok(get_window_class_name(child_hwnd).map(|class_name| (from_hwnd(child_hwnd), class_name)))
-    }
-
+impl CursorPicker for Win32Manager {
     fn get_cursor_pos(&self) -> Result<CursorPoint> {
         unsafe {
             let mut point = POINT::default();
@@ -160,9 +159,6 @@ impl WindowManager for Win32Manager {
         unsafe { (GetAsyncKeyState(VK_LBUTTON.0.into()) & KEY_PRESSED) != 0 }
     }
 
-    /*
-      Gets information that will be used to store and identify the window
-    */
     fn get_window_info_at(&self, point: CursorPoint) -> Result<WindowInfo> {
         unsafe {
             let hwnd = WindowFromPoint(POINT {
@@ -182,14 +178,11 @@ impl WindowManager for Win32Manager {
 
             Ok(WindowInfo {
                 class_name: window_class,
-                process_name: self.process_name_from_pid(process_id)?,
+                process_name: Windows::process_name_from_pid(process_id)?,
             })
         }
     }
 
-    /*
-      Returns if the window below the cursor is running as admin.
-    */
     fn is_elevated_at(&self, point: CursorPoint) -> bool {
         let mut process_id = 0;
         let mut elevation = TOKEN_ELEVATION::default();
@@ -208,16 +201,17 @@ impl WindowManager for Win32Manager {
             GetWindowThreadProcessId(hwnd, Some(&mut process_id));
 
             let process = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) {
-                Ok(process) => process,
+                Ok(process) => OwnedHandle(process),
                 Err(_) => return false,
             };
 
-            if OpenProcessToken(process, TOKEN_QUERY, &mut token).is_err() {
+            if OpenProcessToken(process.0, TOKEN_QUERY, &mut token).is_err() {
                 return false;
             }
+            let token = OwnedHandle(token);
 
             GetTokenInformation(
-                token,
+                token.0,
                 TokenElevation,
                 Some(&mut elevation as *mut _ as *mut c_void),
                 size,
@@ -229,9 +223,6 @@ impl WindowManager for Win32Manager {
         elevation.TokenIsElevated != 0
     }
 
-    /*
-     Check if we are running as admin.
-    */
     fn is_running_as_admin(&self) -> bool {
         let mut elevation = TOKEN_ELEVATION::default();
         let mut size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
@@ -241,9 +232,10 @@ impl WindowManager for Win32Manager {
             if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
                 return false;
             }
+            let token = OwnedHandle(token);
 
             GetTokenInformation(
-                token,
+                token.0,
                 TokenElevation,
                 Some(&mut elevation as *mut _ as *mut c_void),
                 size,
@@ -252,16 +244,43 @@ impl WindowManager for Win32Manager {
             .is_ok_and(|_| elevation.TokenIsElevated != 0)
         }
     }
+}
 
-    /*
-     Enables/disables autostart of WinAlpha via a registry "Run" key.
-    */
-    fn set_autostart(&self, enabled: bool) -> Result<()> {
+impl WindowManager for Win32Manager {
+    fn find_parent_from_child_class(
+        &self,
+        child_class: &str,
+    ) -> Result<Option<(WindowHandle, String)>> {
+        let child_hwnd = match find_window_by_class(child_class)? {
+            Some(hwnd) => hwnd,
+            None => return Ok(None),
+        };
+
+        Ok(get_window_class_name(child_hwnd).map(|class_name| (from_hwnd(child_hwnd), class_name)))
+    }
+
+    fn opacity(&self) -> Opacity<'_> {
+        Opacity::Polling(self)
+    }
+
+    fn pick_window(&self, on_hover: &(dyn Fn(PickHover) + Sync)) -> Result<Option<WindowInfo>> {
+        run_cursor_pick(self, on_hover)
+    }
+}
+
+/// Windows host-OS integration (the [`OperatingSystem`] contract). Shared by the
+/// single Windows window backend; carries no state.
+pub struct Windows;
+
+impl OperatingSystem for Windows {
+    fn set_autostart(enabled: bool) -> Result<()> {
         let mut startup_key = HKEY::default();
 
         let path_str =
             PCSTR::from_raw(b"Software\\Microsoft\\Windows\\CurrentVersion\\Run\0".as_ptr());
-        let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
+
+        let app_name_buf = format!("{}\0", crate::identity::APP_NAME);
+        let app_name = PCSTR::from_raw(app_name_buf.as_ptr());
         let exe_path = current_exe()
             .unwrap_or_default()
             .to_string_lossy()
@@ -291,53 +310,40 @@ impl WindowManager for Win32Manager {
             } else {
                 _ = RegDeleteValueA(startup_key, app_name);
             }
-            // Close reg key handle
             _ = RegCloseKey(startup_key);
         }
 
         Ok(())
     }
 
-    /*
-     Returns if autostart is enabled, by checking if the registry key exists.
-    */
-    fn get_autostart_state(&self) -> bool {
+    fn get_autostart_state() -> bool {
         let key: HKEY = HKEY_CURRENT_USER;
         let path_str =
             PCSTR::from_raw(b"Software\\Microsoft\\Windows\\CurrentVersion\\Run\0".as_ptr());
-        let app_name = PCSTR::from_raw(b"WinAlpha\0".as_ptr());
+        let app_name_buf = format!("{}\0", crate::identity::APP_NAME);
+        let app_name = PCSTR::from_raw(app_name_buf.as_ptr());
 
         let mut startup_key = HKEY::default();
         let mut size = 0u32;
 
         unsafe {
-            let result = RegOpenKeyExA(key, path_str, Some(0), KEY_READ, &mut startup_key);
-
-            if result != ERROR_SUCCESS {
+            if RegOpenKeyExA(key, path_str, Some(0), KEY_READ, &mut startup_key) != ERROR_SUCCESS {
                 return false;
             }
 
-            // Query the size first
-            let result = RegQueryValueExA(startup_key, app_name, None, None, None, Some(&mut size));
+            // Existence check only — a single query with no data buffer. (The
+            // previous second query wrote into a `Vec` that was freed at the end
+            // of the statement and never read.)
+            let exists = RegQueryValueExA(startup_key, app_name, None, None, None, Some(&mut size))
+                == ERROR_SUCCESS;
 
-            if result != ERROR_SUCCESS {
-                return false;
-            }
-
-            let result = RegQueryValueExA(
-                startup_key,
-                app_name,
-                None,
-                None,
-                Some(Vec::with_capacity(size as usize).as_mut_ptr()),
-                Some(&mut size),
-            );
-
-            result == ERROR_SUCCESS
+            // Release the key on every path — it was leaking before.
+            let _ = RegCloseKey(startup_key);
+            exists
         }
     }
 
-    fn open_path(&self, path: &str) -> Result<()> {
+    fn open_path(path: &str) -> Result<()> {
         let wide: Vec<u16> = path.encode_utf16().chain(once(0)).collect();
         unsafe {
             ShellExecuteW(
@@ -352,28 +358,25 @@ impl WindowManager for Win32Manager {
         Ok(())
     }
 
-    /*
-      Gets the process name from a provided process id.
-    */
-    fn process_name_from_pid(&self, pid: u32) -> Result<String> {
+    fn process_name_from_pid(pid: u32) -> Result<String> {
         unsafe {
-            // A holding buffer for the process name.
             let mut buffer = [0u16; MAX_PATH as usize];
             let mut size = buffer.len() as u32;
 
-            let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-                .map_err(|_| anyhow!("Failed to get process handle."))?;
+            let process = OwnedHandle(
+                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+                    .map_err(|_| anyhow!("Failed to get process handle."))?,
+            );
 
-            // Get process name
+            // The handle is released by `process` on return, even via `?` here.
             QueryFullProcessImageNameW(
-                process_handle,
+                process.0,
                 PROCESS_NAME_FORMAT(0),
                 PWSTR(buffer.as_mut_ptr()),
                 &mut size,
             )
             .map_err(|_| anyhow!("Failed to get process name."))?;
 
-            // Extract filename without extension
             let buffer_path = String::from_utf16_lossy(&buffer[..size as usize]);
             let split_name = buffer_path
                 .rsplit('\\')

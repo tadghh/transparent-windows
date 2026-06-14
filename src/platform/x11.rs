@@ -1,13 +1,7 @@
-//! X11 / XWayland implementation of [`WindowManager`].
-//!
-//! Opacity is driven through the `_NET_WM_WINDOW_OPACITY` EWMH property, which a
-//! running compositor (picom, KWin, mutter, ...) honours. Without a compositor
-//! the property is set but has no visible effect. Native-Wayland windows are not
-//! reachable through this mechanism — only X11/XWayland clients respond.
-
-// TODO this is just gross
-
-use super::{CursorPoint, WindowHandle, WindowInfo, WindowManager, linux_common};
+use super::{
+    CursorPicker, CursorPoint, Opacity, OperatingSystem, Os, PickHover, PollingOpacity,
+    WindowHandle, WindowInfo, WindowManager, run_cursor_pick,
+};
 use anyhow::{Result, anyhow};
 use x11rb::{
     connection::Connection,
@@ -64,7 +58,6 @@ impl X11Manager {
         Ok(reply.value32().map(|it| it.collect()).unwrap_or_default())
     }
 
-    /// The class component of a window's `WM_CLASS` (the second NUL-terminated string).
     fn window_class(&self, window: Window) -> Option<String> {
         let reply = self
             .conn
@@ -73,7 +66,6 @@ impl X11Manager {
             .reply()
             .ok()?;
 
-        // WM_CLASS is "instance\0class\0".
         let mut parts = reply.value.split(|&b| b == 0);
         let _instance = parts.next();
         parts
@@ -126,7 +118,7 @@ impl X11Manager {
     }
 }
 
-impl WindowManager for X11Manager {
+impl PollingOpacity for X11Manager {
     fn set_window_alpha(&self, handle: WindowHandle, alpha: u8) -> Result<()> {
         let window = handle.0 as Window;
         let cardinal = alpha_to_cardinal(alpha);
@@ -154,7 +146,7 @@ impl WindowManager for X11Manager {
                 let class_ok = self.window_class(win).as_deref() == Some(window_class);
                 let process_ok = self
                     .window_pid(win)
-                    .and_then(|pid| self.process_name_from_pid(pid).ok())
+                    .and_then(|pid| Os::process_name_from_pid(pid).ok())
                     .is_some_and(|name| name == process_name);
 
                 class_ok && process_ok
@@ -162,23 +154,9 @@ impl WindowManager for X11Manager {
             .map(|win| WindowHandle(win as u64))
             .collect()
     }
+}
 
-    fn find_parent_from_child_class(
-        &self,
-        child_class: &str,
-    ) -> Result<Option<(WindowHandle, String)>> {
-        // `_NET_CLIENT_LIST` already yields top-level client windows, so the
-        // "parent" of a matching client is the client itself.
-        for win in self.client_list()? {
-            if let Some(class) = self.window_class(win) {
-                if class == child_class {
-                    return Ok(Some((WindowHandle(win as u64), class)));
-                }
-            }
-        }
-        Ok(None)
-    }
-
+impl CursorPicker for X11Manager {
     fn get_cursor_pos(&self) -> Result<CursorPoint> {
         let pointer = self.conn.query_pointer(self.root)?.reply()?;
         Ok(CursorPoint {
@@ -209,34 +187,41 @@ impl WindowManager for X11Manager {
             class_name: self.window_class(client).unwrap_or_default(),
             process_name: self
                 .window_pid(client)
-                .and_then(|pid| self.process_name_from_pid(pid).ok())
+                .and_then(|pid| Os::process_name_from_pid(pid).ok())
                 .unwrap_or_default(),
         })
     }
 
     fn is_elevated_at(&self, _point: CursorPoint) -> bool {
-        // No UAC analogue on Linux; opacity changes aren't privilege-gated.
         false
     }
 
     fn is_running_as_admin(&self) -> bool {
         false
     }
+}
 
-    fn set_autostart(&self, enabled: bool) -> Result<()> {
-        linux_common::set_autostart(enabled)
+impl WindowManager for X11Manager {
+    fn find_parent_from_child_class(
+        &self,
+        child_class: &str,
+    ) -> Result<Option<(WindowHandle, String)>> {
+        for win in self.client_list()? {
+            if let Some(class) = self.window_class(win)
+                && class == child_class
+            {
+                return Ok(Some((WindowHandle(win as u64), class)));
+            }
+        }
+        Ok(None)
     }
 
-    fn get_autostart_state(&self) -> bool {
-        linux_common::get_autostart_state()
+    fn opacity(&self) -> Opacity<'_> {
+        Opacity::Polling(self)
     }
 
-    fn open_path(&self, path: &str) -> Result<()> {
-        linux_common::open_path(path)
-    }
-
-    fn process_name_from_pid(&self, pid: u32) -> Result<String> {
-        linux_common::process_name_from_pid(pid)
+    fn pick_window(&self, on_hover: &(dyn Fn(PickHover) + Sync)) -> Result<Option<WindowInfo>> {
+        run_cursor_pick(self, on_hover)
     }
 }
 
@@ -244,11 +229,6 @@ fn intern(conn: &RustConnection, name: &[u8]) -> Result<Atom> {
     Ok(conn.intern_atom(false, name)?.reply()?.atom)
 }
 
-/// Map a 0-255 alpha (255 = opaque) to a `_NET_WM_WINDOW_OPACITY` cardinal.
 fn alpha_to_cardinal(alpha: u8) -> u32 {
-    if alpha == 255 {
-        OPAQUE
-    } else {
-        ((alpha as u64 * OPAQUE as u64) / 255) as u32
-    }
+    super::rescale(alpha as u32, u8::MAX as u32, OPAQUE)
 }
