@@ -1,0 +1,6 @@
+[unstable]
+build-std = ["std", "panic_abort"]
+build-std-features = ["optimize_for_size"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-Cforce-unwind-tables=no"]
