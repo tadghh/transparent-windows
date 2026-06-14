@@ -1,3 +1,5 @@
+cargo-features = ["panic-immediate-abort"]
+
 [package]
 authors    =["Ethan Henry"]
 description="Set the transparency of windows, for Windows!"
@@ -35,20 +37,33 @@ zbus="4"
 [package.metadata]
 os=["windows", "linux"]
 
+[lints.rustdoc]
+bare_urls               ="warn"
+broken_intra_doc_links  ="deny"
+invalid_rust_codeblocks ="warn"
+private_intra_doc_links ="warn"
+redundant_explicit_links="warn"
+unescaped_backticks     ="warn"
+
 [profile.release]
 codegen-units  =1
 debug          =false
 incremental    =false
 lto            ="fat"
-opt-level      =3
+opt-level      ="z"
 overflow-checks=false
-panic          ="abort"
+panic          ="immediate-abort"
 rpath          =false
 strip          ="symbols"
 
 [build-dependencies]
 embed-resource="2.5"
 slint-build   ="1.10.0"
+
+# Linux tray icons are embedded ARGB pixmaps (no `.rc` resource like Windows), so
+# the PNG is decoded at build time. See `build.rs`.
+[target.'cfg(unix)'.build-dependencies]
+image={ version="0.25", default-features=false, features=["png"] }
 
 [dependencies]
 anyhow           ="1.0.97"
