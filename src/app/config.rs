@@ -1,53 +1,140 @@
-use crate::{ConfigWindow, window_config::WindowConfig};
-use anyhow::anyhow;
+//! Application config: the on-disk [`Config`] model, resolving and loading it
+//! ([`config_path`], [`load_config`]), and the recovery window shown when the
+//! stored file can't be parsed.
+
+use crate::{
+    ConfigWindow,
+    app::ui::WindowExt,
+    platform::{OperatingSystem, Os, WindowManager},
+    transparency::rules::WindowRule,
+};
+use anyhow::{Result, anyhow};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use serde_json::from_str;
 use slint::ComponentHandle;
 use std::{
+    cell::Cell,
     collections::HashMap,
     fs::{self, create_dir_all},
-    path::PathBuf,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    rc::Rc,
 };
 
-#[derive(Clone)]
-pub enum Message {
-    Quit,
-    Add,
-    Rules,
-    Enable,
-    Disable,
-    Startup,
-}
+#[cfg(test)]
+#[path = "../tests/config.rs"]
+mod tests;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Config {
-    windows: HashMap<String, WindowConfig>,
+    windows: HashMap<String, WindowRule>,
 }
 
 impl Config {
-    pub fn new() -> Self {
-        Self {
-            windows: HashMap::new(),
-        }
+    pub fn windows(&self) -> &HashMap<String, WindowRule> {
+        &self.windows
     }
 
-    pub fn get_windows(&mut self) -> &mut HashMap<String, WindowConfig> {
+    /// Mutable access to the whole rule map. Rule mutations in normal flow go
+    /// through [`Config::upsert_rule`]/[`Config::apply_force`]; this is for test
+    /// setup that needs to seed arbitrary state.
+    #[cfg(test)]
+    pub fn windows_mut(&mut self) -> &mut HashMap<String, WindowRule> {
         &mut self.windows
     }
 
-    pub fn get_windows_non_mut(&self) -> &HashMap<String, WindowConfig> {
-        &self.windows
+    /// Add `rule`, or update the existing rule it supersedes — one whose recorded
+    /// `old_class` (the class it was forced away from) matches this rule's class
+    /// for the same process. Matching that case updates in place; otherwise the
+    /// rule is inserted fresh.
+    pub fn upsert_rule(&mut self, rule: WindowRule) {
+        for existing in self.windows.values_mut() {
+            if let Some(old_class) = existing.get_old_classname()
+                && existing.get_name() == rule.get_name()
+                && rule.get_window_class() == old_class
+            {
+                existing.set_enabled(rule.is_enabled());
+                existing.set_alpha(rule.get_alpha());
+                return;
+            }
+        }
+
+        self.windows.insert(rule.get_key(), rule);
+    }
+
+    /// Apply a force toggle for `rule`, given the already-resolved `parent_class`
+    /// (the top-level window class the child belongs to) and the `lookup_class`
+    /// the rule was created against. `wm` is used only to apply opacity to live
+    /// windows during the transition, so it can be a no-op in tests.
+    ///
+    /// Forcing re-keys the rule under the parent class and records the original
+    /// class as `old_class`; un-forcing finds that re-keyed rule and disables it,
+    /// restoring its windows to opaque.
+    pub fn apply_force(
+        &mut self,
+        mut rule: WindowRule,
+        parent_class: &str,
+        lookup_class: String,
+        wm: &dyn WindowManager,
+    ) {
+        if rule.is_forced() {
+            self.remove_rule(&rule);
+            rule.set_window_class(parent_class);
+            if rule.is_enabled() {
+                rule.refresh(wm);
+            }
+            rule.set_old_classname(Some(lookup_class));
+
+            self.windows.insert(rule.get_key(), rule);
+        } else {
+            for existing in self.windows.values_mut() {
+                if let Some(old_class) = existing.get_old_classname()
+                    && existing.get_name() == rule.get_name()
+                    && rule.get_window_class() == old_class
+                {
+                    existing.set_enabled(false);
+                    existing.unforce(wm);
+                    existing.set_window_class(rule.get_window_class());
+                    existing.set_alpha(rule.get_alpha());
+                    existing.set_forced(rule.is_forced());
+                }
+            }
+        }
+    }
+
+    /// Remove a rule by its key, plus any forced-class alias keyed by its
+    /// `old_class`.
+    fn remove_rule(&mut self, rule: &WindowRule) {
+        self.windows.remove(&rule.get_key());
+
+        if let Some(old_class) = rule.get_old_classname() {
+            let key = format!("{}|{}", rule.get_name(), old_class);
+            self.windows.remove(&key);
+        }
     }
 }
 
-/// Shows the config-recovery window. Must be called on the Slint event-loop.
-pub fn show_config_error_window(config_path: PathBuf) {
+/// Overwrite the file at `path` with a valid empty config, recovering a corrupt
+/// file in place. A serialize/write failure is logged rather than panicking the
+/// UI callback.
+fn reset_config_file(path: &str) {
+    match serde_json::to_string_pretty(&Config::default()) {
+        Ok(json) => {
+            if let Err(e) = fs::write(path, json) {
+                eprintln!("Failed to reset config at {path}: {e}");
+            }
+        }
+        Err(e) => eprintln!("Failed to serialize empty config: {e}"),
+    }
+}
+
+/// Shows the config-recovery window. Must be called on the Slint event-loop
+/// thread (every callback below runs there, so single-thread cell types are
+/// enough — no cross-thread locking).
+fn show_config_error_window(config_path: PathBuf) {
     let config_path = match config_path.into_os_string().into_string() {
         Ok(path) => path,
         Err(os_str) => {
-            eprintln!("Invalid UTF-8 in config path: {:?}", os_str);
+            eprintln!("Invalid UTF-8 in config path: {os_str:?}");
             return;
         }
     };
@@ -59,90 +146,82 @@ pub fn show_config_error_window(config_path: PathBuf) {
             return;
         }
     };
-    let window_handle = window.as_weak();
 
-    let config_clone = Arc::new(Mutex::new(config_path));
-    let action_taken = Arc::new(Mutex::new(false));
+    // Tracks whether the user picked Edit or Reset, so closing the window without
+    // choosing can fall back to a reset. Shared between both callbacks.
+    let action_taken = Rc::new(Cell::new(false));
 
-    let action_taken_clone = action_taken.clone();
-    let config_clone_submit = config_clone.clone();
-    let config_clone_cancel = config_clone.clone();
-
+    let submit_action = action_taken.clone();
+    let submit_path = config_path.clone();
+    let submit_handle = window.as_weak();
     window.on_submit(move |value| match value {
         crate::Action::Edit => {
-            *action_taken.lock().unwrap() = true;
-            match config_clone_submit.lock() {
-                Ok(path) => {
-                    _ = crate::platform::wm().open_path(path.as_str());
-                }
-                Err(_) => {
-                    _ = anyhow!("AHHHHH");
-                }
-            };
+            submit_action.set(true);
+            if let Err(e) = Os::open_path(&submit_path) {
+                eprintln!("Failed to open config for editing: {e}");
+            }
         }
         crate::Action::Reset => {
-            match action_taken.lock() {
-                Ok(mut action_state) => {
-                    *action_state = true;
-                }
-                Err(e) => {
-                    _ = anyhow!("AHHHHH {}", e);
-                }
-            }
-
-            if let Ok(config_json) = serde_json::to_string_pretty(&[serde_json::json!({})])
-                && let Ok(config_clone) = config_clone.lock()
-            {
-                fs::write(config_clone.as_str(), config_json).expect("better not.");
-            } else {
-                _ = anyhow!("AHHHHH failed to lock/write config!!!");
+            submit_action.set(true);
+            reset_config_file(&submit_path);
+            if let Some(handle) = submit_handle.upgrade() {
+                let _ = handle.hide();
             }
         }
     });
 
+    let window_handle = window.as_weak();
     window.on_cancel(move || {
-        // TODO bleh, hopefully we dont unwrap; this is unlikely
-        if !*action_taken_clone.lock().unwrap()
-            && let Ok(config_clone) = config_clone_cancel.lock()
-            && let Ok(config_json) = serde_json::to_string_pretty(&[serde_json::json!({})])
-        {
-            fs::write(config_clone.as_str(), config_json).expect("better not.");
+        // Closing without choosing Edit/Reset falls back to resetting the file.
+        if !action_taken.get() {
+            reset_config_file(&config_path);
         }
-
         if let Some(handle) = window_handle.upgrade() {
-            _ = handle.hide();
+            let _ = handle.hide();
         }
     });
 
-    if let Err(e) = window.show() {
-        eprintln!("Failed to show config error window: {e}");
-        return;
-    }
-    crate::ui::keep_alive("config_error", window);
+    window.show_keep_alive();
 }
 
-/// Loads the config. The returned bool is true when the file existed but failed
-/// to parse — the caller should surface the recovery window via
-/// [`show_config_error_window`].
-pub fn load_config() -> (Config, PathBuf, bool) {
-    let project_dirs = ProjectDirs::from("com", "windowtransparency", "winalpha")
-        .expect("Failed to get project config directories.");
+/// Resolve the config file's path, creating its directory if missing. Errors when
+/// the OS won't yield a config location (no home directory) or the directory
+/// can't be created.
+pub fn config_path() -> Result<PathBuf> {
+    let project_dirs = ProjectDirs::from(
+        crate::identity::APP_QUALIFIER,
+        crate::identity::APP_ORG,
+        crate::identity::APP_ID,
+    )
+    .ok_or_else(|| anyhow!("could not resolve the OS config directory"))?;
 
     let config_dir = project_dirs.config_dir();
+    create_dir_all(config_dir).map_err(|e| {
+        anyhow!(
+            "could not create config directory {}: {e}",
+            config_dir.display()
+        )
+    })?;
 
-    create_dir_all(config_dir).ok();
+    Ok(config_dir.join("config.json"))
+}
 
-    // TODO: toucou
-    let config_path = config_dir.join("config.json");
-    if config_path.exists()
-        && let Ok(config_data) = fs::read_to_string(&config_path)
-    {
-        if let Ok(existing) = from_str::<Config>(&config_data) {
-            (existing, config_path, false)
-        } else {
-            (Config::new(), config_path, true)
+/// Load the config at `path`, always yielding a usable [`Config`]:
+/// - missing or unreadable file → a fresh empty config (first run, nothing to do);
+/// - present but unparseable → a fresh empty config *and* the recovery window, so
+///   the user can edit or reset the broken file instead of it being silently
+///   overwritten.
+pub fn load_config(path: &Path) -> Config {
+    let Ok(data) = fs::read_to_string(path) else {
+        return Config::default();
+    };
+
+    match serde_json::from_str::<Config>(&data) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Config at {} is invalid: {e}", path.display());
+            show_config_error_window(path.to_path_buf());
+            Config::default()
         }
-    } else {
-        (Config::new(), config_path, false)
     }
 }
