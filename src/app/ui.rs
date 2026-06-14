@@ -8,8 +8,8 @@
 //! All access happens on the event-loop thread — either from a window callback
 //! or from inside a `slint::invoke_from_event_loop` closure.
 
-use crate::ErrorWindow;
-use slint::ComponentHandle;
+use crate::{ErrorWindow, Palette, app::theme};
+use slint::{ComponentHandle, Global};
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -26,13 +26,22 @@ thread_local! {
 /// `show()`, `hide()`, …), so this blanket-impl extension trait adds the
 /// app-specific dance on top — letting callers write `window.show_keep_alive()`
 /// instead of repeating show-or-log-then-retain.
-pub trait WindowExt: ComponentHandle + 'static {
+pub trait WindowExt: ComponentHandle + Sized + 'static
+where
+    for<'a> Palette<'a>: Global<'a, Self>,
+{
     /// Show the window and retain it (see [`keep_alive`]); on failure the error is
     /// logged and the window dropped (closing it).
     fn show_keep_alive(self)
     where
         Self: Sized,
     {
+        // Push the system-detected color scheme into the shared `Palette` so the
+        // std-widgets pick the matching light/dark colors before first paint.
+        // The global is shared by every window, so the most recently shown
+        // window's detection wins — good enough for a tray app where the user
+        // reopens windows after changing the system theme.
+        self.global::<Palette>().set_color_scheme(theme::detect());
         if let Err(e) = self.show() {
             error!(
                 error = %e,
@@ -45,7 +54,12 @@ pub trait WindowExt: ComponentHandle + 'static {
     }
 }
 
-impl<T: ComponentHandle + 'static> WindowExt for T {}
+impl<T> WindowExt for T
+where
+    T: ComponentHandle + 'static,
+    for<'a> Palette<'a>: Global<'a, T>,
+{
+}
 
 /// Surface a failure to the user in a small dismissable window. Safe to call
 /// from any thread — the work is marshalled onto the Slint event loop — so

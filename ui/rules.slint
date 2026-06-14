@@ -188,35 +188,50 @@ export component RulesWindow inherits Window {
         }
 
         HorizontalLayout {
+            spacing: 3px;
             alignment: LayoutAlignment.space-between;
             min-width: 60px;
-            Text {
-                max-width: 80px;
+            Rectangle {
+                max-width: 40px;
                 min-width: 80px;
-                font-family: "";
-                font-weight: 700;
-                text: "Rule:";
+                Text {
+                    horizontal-alignment: TextHorizontalAlignment.left;
+                    font-family: "";
+                    font-weight: 700;
+                    text: "Rule:";
+                }
             }
 
-            Text {
-                min-width: 50px;
-                font-family: "";
-                font-weight: 700;
-                text: "Enabled:";
+            Rectangle {
+                width: -32px;
+                Text {
+                    horizontal-alignment: TextHorizontalAlignment.center;
+                    font-family: "";
+                    font-weight: 700;
+                    text: "Enabled:";
+                }
             }
 
-            Text {
-                horizontal-alignment: TextHorizontalAlignment.right;
-                font-weight: 700;
-                text: "Force:";
+            Rectangle {
+                width: -25px;
+                Text {
+                    horizontal-alignment: TextHorizontalAlignment.center;
+                    font-weight: 700;
+                    text: "Force:";
+                }
             }
 
-            Text {
-                horizontal-alignment: TextHorizontalAlignment.right;
-                max-width: 24px;
-                font-weight: 700;
-                stroke-style: TextStrokeStyle.center;
-                text: "Percentage:";
+            Rectangle {
+                min-width: 24px;
+                Text {
+                    horizontal-alignment: TextHorizontalAlignment.center;
+                    font-weight: 700;
+                    text: "%";
+                }
+            }
+
+            Rectangle {
+                width: 20px;
             }
         }
 
