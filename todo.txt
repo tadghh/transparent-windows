@@ -1,0 +1,2 @@
+- tray has duplicate startup keys, one of them straight up crashes the prog
+- add tracing smart guy
