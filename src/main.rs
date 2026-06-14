@@ -25,15 +25,24 @@ extern crate test;
 use anyhow::Result;
 use app::{state::AppState, tray};
 use std::sync::Arc;
+use tracing::info;
 use transparency::monitor::monitor_windows;
 mod app;
 mod identity;
+mod logging;
 mod platform;
 mod transparency;
 
 slint::include_modules!();
 
 fn main() -> Result<()> {
+    logging::init();
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "{} starting",
+        identity::APP_NAME
+    );
+
     platform::init();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()

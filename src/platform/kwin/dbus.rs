@@ -11,6 +11,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use tracing::warn;
 use zbus::{
     blocking::{Connection, connection::Builder},
     zvariant::OwnedValue,
@@ -67,15 +68,12 @@ impl HoverSink {
         } else {
             caption
         };
-        match self.latest.lock() {
-            Ok(mut slot) => {
-                *slot = Some(WindowInfo {
-                    class_name: class,
-                    process_name,
-                });
-            }
-            Err(e) => eprintln!("Hover slot lock poisoned: {e}"),
-        }
+        // A poisoned hover slot is harmless (it only caches the last hovered
+        // window), so recover the guard rather than dropping the update.
+        *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = Some(WindowInfo {
+            class_name: class,
+            process_name,
+        });
     }
 }
 
@@ -92,7 +90,7 @@ impl KwinDbus {
         let conn = match serve_hover(latest_hover.clone()) {
             Ok(conn) => conn,
             Err(e) => {
-                eprintln!("hover D-Bus service unavailable ({e}); picker preview disabled");
+                warn!(error = %e, "hover D-Bus service unavailable; picker preview disabled");
                 Connection::session().map_err(|e| anyhow!("D-Bus session bus unavailable: {e}"))?
             }
         };
@@ -168,22 +166,13 @@ impl KwinDbus {
 
     /// The most recent window the probe script reported over D-Bus, if any.
     pub(super) fn hover(&self) -> Option<WindowInfo> {
-        match self.latest_hover.lock() {
-            Ok(slot) => slot.clone(),
-            Err(e) => {
-                eprintln!("Hover slot lock poisoned: {e}");
-                None
-            }
-        }
+        self.latest_hover.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Forget any reported window. Called before a fresh pick so a window left
     /// over from a previous one isn't shown.
     pub(super) fn clear_hover(&self) {
-        match self.latest_hover.lock() {
-            Ok(mut slot) => *slot = None,
-            Err(e) => eprintln!("Hover slot lock poisoned: {e}"),
-        }
+        *self.latest_hover.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 

@@ -3,9 +3,18 @@ use super::{
     WindowHandle, WindowInfo, WindowManager, run_cursor_pick,
 };
 use anyhow::{Result, anyhow};
+use std::sync::Arc;
+use tokio::sync::Notify;
+use tracing::{debug, warn};
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{Atom, AtomEnum, ConnectionExt as _, KeyButMask, PropMode, Window},
+    protocol::{
+        Event,
+        xproto::{
+            Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, EventMask, KeyButMask,
+            PropMode, Window,
+        },
+    },
     rust_connection::RustConnection,
     wrapper::ConnectionExt as _,
 };
@@ -24,6 +33,10 @@ pub struct X11Manager {
     conn: RustConnection,
     root: Window,
     atoms: Atoms,
+    /// Fires when the set of open windows may have changed (see
+    /// [`spawn_window_change_listener`]). `None` if the listener couldn't be
+    /// started, in which case the monitor falls back to periodic polling.
+    window_changed: Option<Arc<Notify>>,
 }
 
 impl X11Manager {
@@ -38,7 +51,26 @@ impl X11Manager {
             wm_state: intern(&conn, b"WM_STATE")?,
         };
 
-        Ok(Self { conn, root, atoms })
+        // A dedicated connection listens for window open/close so the monitor can
+        // react to events instead of polling on a fixed interval. If it can't be
+        // set up, fall back to polling (the monitor handles `None`).
+        let window_changed = match spawn_window_change_listener() {
+            Ok(signal) => {
+                debug!("X11 window-change listener active");
+                Some(signal)
+            }
+            Err(e) => {
+                warn!(error = %e, "X11 window-change listener unavailable; falling back to polling");
+                None
+            }
+        };
+
+        Ok(Self {
+            conn,
+            root,
+            atoms,
+            window_changed,
+        })
     }
 
     /// Top-level managed client windows, per `_NET_CLIENT_LIST`.
@@ -102,6 +134,16 @@ impl X11Manager {
             .is_some_and(|reply| reply.type_ != x11rb::NONE)
     }
 
+    /// Whether the given pointer button is currently held, per the root pointer
+    /// query mask.
+    fn pointer_button_held(&self, button: KeyButMask) -> bool {
+        self.conn
+            .query_pointer(self.root)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .is_some_and(|pointer| u16::from(pointer.mask) & u16::from(button) != 0)
+    }
+
     /// Descend from a (possibly WM-frame) window to the real client window.
     fn find_client_window(&self, window: Window) -> Option<Window> {
         if self.has_wm_state(window) {
@@ -132,6 +174,10 @@ impl PollingOpacity for X11Manager {
         )?;
         self.conn.flush()?;
         Ok(())
+    }
+
+    fn window_change_signal(&self) -> Option<Arc<Notify>> {
+        self.window_changed.clone()
     }
 
     fn enumerate_windows(&self, process_name: &str, window_class: &str) -> Vec<WindowHandle> {
@@ -166,11 +212,12 @@ impl CursorPicker for X11Manager {
     }
 
     fn is_left_click(&self) -> bool {
-        self.conn
-            .query_pointer(self.root)
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .is_some_and(|pointer| u16::from(pointer.mask) & u16::from(KeyButMask::BUTTON1) != 0)
+        self.pointer_button_held(KeyButMask::BUTTON1)
+    }
+
+    fn is_cancel_requested(&self) -> bool {
+        // Right-click cancels the pick.
+        self.pointer_button_held(KeyButMask::BUTTON3)
     }
 
     fn get_window_info_at(&self, _point: CursorPoint) -> Result<WindowInfo> {
@@ -223,6 +270,52 @@ impl WindowManager for X11Manager {
     fn pick_window(&self, on_hover: &(dyn Fn(PickHover) + Sync)) -> Result<Option<WindowInfo>> {
         run_cursor_pick(self, on_hover)
     }
+}
+
+/// Open a second X connection, subscribe to root-window structure and property
+/// changes, and spawn a thread that signals `Notify` whenever the set of open
+/// windows may have changed (a window mapped/unmapped/created/destroyed, or the
+/// WM rewriting `_NET_CLIENT_LIST`). A separate connection is used so the blocking
+/// `wait_for_event` loop never steals replies from the request/reply connection.
+/// The signal coalesces bursts; the monitor pairs it with a slow periodic
+/// re-apply so a missed event still self-corrects.
+fn spawn_window_change_listener() -> Result<Arc<Notify>> {
+    let (conn, screen_num) = x11rb::connect(None)?;
+    let root = conn.setup().roots[screen_num].root;
+    let net_client_list = intern(&conn, b"_NET_CLIENT_LIST")?;
+
+    conn.change_window_attributes(
+        root,
+        &ChangeWindowAttributesAux::new()
+            .event_mask(EventMask::PROPERTY_CHANGE | EventMask::SUBSTRUCTURE_NOTIFY),
+    )?
+    .check()?;
+    conn.flush()?;
+
+    let signal = Arc::new(Notify::new());
+    let thread_signal = signal.clone();
+    std::thread::spawn(move || {
+        while let Ok(event) = conn.wait_for_event() {
+            let relevant = match event {
+                // Property changes are noisy (focus, desktop, …); only the client
+                // list signals a window opening or closing.
+                Event::PropertyNotify(e) => e.atom == net_client_list,
+                Event::MapNotify(_)
+                | Event::UnmapNotify(_)
+                | Event::CreateNotify(_)
+                | Event::DestroyNotify(_)
+                | Event::ReparentNotify(_) => true,
+                _ => false,
+            };
+            if relevant {
+                thread_signal.notify_one();
+            }
+        }
+        // The loop ends only if the connection drops (e.g. the X server exits),
+        // at which point the whole app is going down anyway.
+    });
+
+    Ok(signal)
 }
 
 fn intern(conn: &RustConnection, name: &[u8]) -> Result<Atom> {

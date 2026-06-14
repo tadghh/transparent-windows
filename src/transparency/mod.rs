@@ -19,6 +19,7 @@ use std::{
     sync::{Arc, mpsc::channel},
     thread,
 };
+use tracing::{debug, error, warn};
 
 // Aligns the cursor overlay with the mouse (window scaling will break this).
 const MOUSE_OFFSET: i32 = 15;
@@ -29,6 +30,9 @@ const MOUSE_OFFSET: i32 = 15;
 pub fn start_add_flow(app_state: Arc<AppState>) {
     pick_window(move |window_info| {
         if window_info.process_name.is_empty() {
+            crate::app::ui::report_error(
+                "Couldn't identify that window — try clicking its border instead.",
+            );
             return;
         }
         let _ = slint::invoke_from_event_loop(move || {
@@ -43,7 +47,7 @@ pub fn show_percentage_window(window_info: WindowInfo, app_state: Arc<AppState>)
     let window = match PercentageWindow::new() {
         Ok(window) => window,
         Err(e) => {
-            eprintln!("Failed to create percentage window: {e}");
+            error!(error = %e, "failed to create percentage window");
             return;
         }
     };
@@ -89,7 +93,7 @@ pub fn show_rules_window(mut rules: Vec<TransparencyRule>, app_state: Arc<AppSta
     let window = match RulesWindow::new() {
         Ok(window) => window,
         Err(e) => {
-            eprintln!("Failed to create rules window: {e}");
+            error!(error = %e, "failed to create rules window");
             return;
         }
     };
@@ -105,6 +109,22 @@ pub fn show_rules_window(mut rules: Vec<TransparencyRule>, app_state: Arc<AppSta
     let app_clone = app_state.clone();
     window.on_submit(move |value: TransparencyRule| {
         app_clone.spawn_update_rule(value.clone().into());
+    });
+
+    let app_delete = app_state.clone();
+    let items_for_delete = items_model.clone();
+    window.on_delete(move |value: TransparencyRule| {
+        app_delete.spawn_remove_rule(value.clone().into());
+
+        // Drop the row from the visible list immediately; the persisted config
+        // is updated asynchronously by the task spawned above.
+        if let Some(idx) = (0..items_for_delete.row_count()).find(|&i| {
+            items_for_delete
+                .row_data(i)
+                .is_some_and(|row| row.process_name == value.process_name && row.window_class == value.window_class)
+        }) {
+            items_for_delete.remove(idx);
+        }
     });
 
     let items_model_weak = window.as_weak();
@@ -164,13 +184,13 @@ pub fn pick_window(on_picked: impl FnOnce(WindowInfo) + Send + 'static) {
             window.set_opacity_error(0);
             let weak = window.as_weak();
             if let Err(e) = window.show() {
-                eprintln!("Failed to show picker panel: {e}");
+                error!(error = %e, "failed to show picker panel");
                 return;
             }
             let _ = weak_tx.send(weak);
             keep_alive(window);
         }
-        Err(e) => eprintln!("Failed to create picker panel: {e}"),
+        Err(e) => error!(error = %e, "failed to create picker panel"),
     });
 
     thread::spawn(move || {
@@ -209,9 +229,12 @@ pub fn pick_window(on_picked: impl FnOnce(WindowInfo) + Send + 'static) {
         }
 
         match result {
-            Ok(Some(info)) => on_picked(info),
-            Ok(None) => {}
-            Err(e) => eprintln!("Window pick failed: {e}"),
+            Ok(Some(info)) => {
+                debug!(class = %info.class_name, "window picked");
+                on_picked(info)
+            }
+            Ok(None) => debug!("window pick cancelled"),
+            Err(e) => warn!(error = %e, "window pick failed"),
         }
     });
 }

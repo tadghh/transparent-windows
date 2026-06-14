@@ -24,7 +24,7 @@ use windows::{
             },
         },
         UI::{
-            Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
+            Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON},
             Shell::ShellExecuteW,
             WindowsAndMessaging::{
                 EnumChildWindows, EnumWindows, FindWindowExW, FindWindowW, GWL_EXSTYLE,
@@ -157,6 +157,15 @@ impl CursorPicker for Win32Manager {
     #[inline]
     fn is_left_click(&self) -> bool {
         unsafe { (GetAsyncKeyState(VK_LBUTTON.0.into()) & KEY_PRESSED) != 0 }
+    }
+
+    #[inline]
+    fn is_cancel_requested(&self) -> bool {
+        // Right-click or Escape cancels the pick.
+        unsafe {
+            (GetAsyncKeyState(VK_RBUTTON.0.into()) & KEY_PRESSED) != 0
+                || (GetAsyncKeyState(VK_ESCAPE.0.into()) & KEY_PRESSED) != 0
+        }
     }
 
     fn get_window_info_at(&self, point: CursorPoint) -> Result<WindowInfo> {

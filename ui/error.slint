@@ -1,0 +1,39 @@
+import { Button } from "std-widgets.slint";
+
+// A small modal-style notice for failures the user needs to know about
+// (e.g. a rule that couldn't be saved). Tracing is compiled out of release
+// builds, so this is the only way these reach the user.
+export component ErrorWindow inherits Window {
+    width: 320px;
+    height: 160px;
+    title: "Something went wrong";
+    icon: @image-url("../icons/app-icon.png");
+    always-on-top: true;
+    in-out property <string> message: "An error occurred.";
+    callback dismiss();
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+        alignment: LayoutAlignment.space-between;
+        Text {
+            font-family: "Arial";
+            font-size: 14px;
+            horizontal-alignment: TextHorizontalAlignment.left;
+            vertical-alignment: TextVerticalAlignment.top;
+            wrap: TextWrap.word-wrap;
+            text: root.message;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            Button {
+                text: "OK";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    root.dismiss();
+                }
+            }
+        }
+    }
+}

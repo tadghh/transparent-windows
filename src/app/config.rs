@@ -19,6 +19,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
 };
+use tracing::{debug, error, warn};
 
 #[cfg(test)]
 #[path = "../tests/config.rs"]
@@ -103,7 +104,7 @@ impl Config {
 
     /// Remove a rule by its key, plus any forced-class alias keyed by its
     /// `old_class`.
-    fn remove_rule(&mut self, rule: &WindowRule) {
+    pub fn remove_rule(&mut self, rule: &WindowRule) {
         self.windows.remove(&rule.get_key());
 
         if let Some(old_class) = rule.get_old_classname() {
@@ -120,10 +121,10 @@ fn reset_config_file(path: &str) {
     match serde_json::to_string_pretty(&Config::default()) {
         Ok(json) => {
             if let Err(e) = fs::write(path, json) {
-                eprintln!("Failed to reset config at {path}: {e}");
+                error!(error = %e, path, "failed to reset config");
             }
         }
-        Err(e) => eprintln!("Failed to serialize empty config: {e}"),
+        Err(e) => error!(error = %e, "failed to serialize empty config"),
     }
 }
 
@@ -134,7 +135,7 @@ fn show_config_error_window(config_path: PathBuf) {
     let config_path = match config_path.into_os_string().into_string() {
         Ok(path) => path,
         Err(os_str) => {
-            eprintln!("Invalid UTF-8 in config path: {os_str:?}");
+            error!(?os_str, "invalid UTF-8 in config path");
             return;
         }
     };
@@ -142,7 +143,7 @@ fn show_config_error_window(config_path: PathBuf) {
     let window = match ConfigWindow::new() {
         Ok(window) => window,
         Err(e) => {
-            eprintln!("Failed to create config error window: {e}");
+            error!(error = %e, "failed to create config error window");
             return;
         }
     };
@@ -158,7 +159,7 @@ fn show_config_error_window(config_path: PathBuf) {
         crate::Action::Edit => {
             submit_action.set(true);
             if let Err(e) = Os::open_path(&submit_path) {
-                eprintln!("Failed to open config for editing: {e}");
+                error!(error = %e, "failed to open config for editing");
             }
         }
         crate::Action::Reset => {
@@ -217,9 +218,12 @@ pub fn load_config(path: &Path) -> Config {
     };
 
     match serde_json::from_str::<Config>(&data) {
-        Ok(config) => config,
+        Ok(config) => {
+            debug!(rules = config.windows().len(), "loaded config");
+            config
+        }
         Err(e) => {
-            eprintln!("Config at {} is invalid: {e}", path.display());
+            warn!(error = %e, path = %path.display(), "config is invalid; opening recovery window");
             show_config_error_window(path.to_path_buf());
             Config::default()
         }

@@ -16,6 +16,7 @@ use tokio::{
     runtime::Handle,
     sync::{RwLock, broadcast},
 };
+use tracing::{debug, error, instrument};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -60,20 +61,33 @@ impl AppState {
         // `AppState` is all `Arc`/`Handle`/`Sender` fields, so a clone is cheap
         // and owned — no extra `Arc` wrapper needed to move it into the task.
         let app_state = self.clone();
-
-        self.runtime.spawn(async move {
-            if let Err(e) = app_state.add_rule(value).await {
-                eprintln!("Failed to update window rule: {}", e);
-            }
-        });
+        self.spawn_rule_task(async move { app_state.add_rule(value).await });
     }
 
     pub fn spawn_force_rule(&self, value: WindowRule) {
         let app_state = self.clone();
+        self.spawn_rule_task(async move { app_state.add_force_rule(value).await });
+    }
 
+    pub fn spawn_remove_rule(&self, value: WindowRule) {
+        let app_state = self.clone();
+        self.spawn_rule_task(async move { app_state.remove_rule(value).await });
+    }
+
+    /// Run a rule-mutating task on the background runtime, surfacing any failure
+    /// to the user *and* logging it. Every rule operation shares this: a swallowed
+    /// `error!` is invisible in release (tracing is stripped), and these failures
+    /// silently lose the user's change, so they must reach the UI.
+    fn spawn_rule_task(
+        &self,
+        task: impl std::future::Future<Output = Result<(), anyhow::Error>> + Send + 'static,
+    ) {
         self.runtime.spawn(async move {
-            if let Err(e) = app_state.add_force_rule(value).await {
-                eprintln!("Failed to update window rule: {}", e);
+            if let Err(e) = task.await {
+                error!(error = %e, "failed to update window rule");
+                crate::app::ui::report_error(
+                    "Couldn't save the transparency rule — the config file may not be writable.",
+                );
             }
         });
     }
@@ -99,6 +113,7 @@ impl AppState {
         self.config.write().await
     }
 
+    #[instrument(skip(self), fields(class = %rule.get_window_class()))]
     pub async fn add_rule(&self, rule: WindowRule) -> Result<(), anyhow::Error> {
         // Mutate under the write lock, then snapshot and release it before any
         // I/O — persisting happens lock-free (see `persist_and_broadcast`). The
@@ -112,6 +127,7 @@ impl AppState {
         self.persist_and_broadcast(snapshot).await
     }
 
+    #[instrument(skip(self), fields(class = %rule.get_window_class()))]
     pub async fn add_force_rule(&self, rule: WindowRule) -> Result<(), anyhow::Error> {
         let lookup_class = rule.get_window_class().to_owned();
 
@@ -125,6 +141,23 @@ impl AppState {
         let snapshot = {
             let mut config = self.get_config_mut().await;
             config.apply_force(rule, &parent_class, lookup_class, wm());
+            config.clone()
+        };
+
+        self.persist_and_broadcast(snapshot).await
+    }
+
+    #[instrument(skip(self), fields(class = %rule.get_window_class()))]
+    pub async fn remove_rule(&self, rule: WindowRule) -> Result<(), anyhow::Error> {
+        // On polling backends, restore the rule's live windows to opaque now:
+        // once it's gone from the config the monitor loop won't visit it again to
+        // reset them. Compositor backends are covered by the rule re-sync inside
+        // `persist_and_broadcast`.
+        rule.unforce(wm());
+
+        let snapshot = {
+            let mut config = self.get_config_mut().await;
+            config.remove_rule(&rule);
             config.clone()
         };
 
@@ -157,6 +190,7 @@ impl AppState {
     }
 
     async fn set_enable_state(&self, new_state: bool) {
+        debug!(enabled = new_state, "transparency enabled state changed");
         self.enabled.store(new_state, Ordering::Relaxed);
 
         // A broadcast send errors only when there are no receivers (e.g. during
@@ -177,8 +211,10 @@ impl AppState {
     /// Flip the OS autostart setting and return the updated [`Self::startup_label`], so
     /// the caller reflects what actually took effect even if the write failed.
     pub fn toggle_autostart(&self) -> String {
-        if let Err(e) = Os::set_autostart(!Os::get_autostart_state()) {
-            eprintln!("Failed to change startup setting: {e}");
+        let target = !Os::get_autostart_state();
+        debug!(autostart = target, "toggling OS autostart");
+        if let Err(e) = Os::set_autostart(target) {
+            error!(error = %e, "failed to change startup setting");
         }
         self.startup_label()
     }
@@ -222,10 +258,11 @@ impl AppState {
         if let Opacity::Compositor(compositor) = wm().opacity()
             && let Err(e) = compositor.sync_rules(&Self::rules_from(config, enabled))
         {
-            eprintln!("Failed to sync compositor transparency rules: {e}");
+            error!(error = %e, "failed to sync compositor transparency rules");
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn sync_rules_now(&self) {
         let config = self.get_config().await;
         self.sync_compositor(&config, self.is_enabled());

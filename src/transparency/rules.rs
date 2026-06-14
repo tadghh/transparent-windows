@@ -115,8 +115,8 @@ impl WindowRule {
         wm.enumerate_windows(&self.process_name, &self.window_class)
     }
 
-    pub fn get_cache_key(&self) -> String {
-        self.get_window_class().to_owned()
+    pub fn get_cache_key(&self) -> &str {
+        self.window_class.as_str()
     }
 }
 

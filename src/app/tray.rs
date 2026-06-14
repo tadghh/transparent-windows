@@ -8,10 +8,11 @@ use tokio::{
     runtime::Handle,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
 };
+use tracing::{error, trace};
 use tray_item::{IconSource, TIError, TrayItem};
 
 /// A user command originating from the tray menu, sent to `main`'s message loop.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Message {
     Quit,
     Add,
@@ -62,25 +63,12 @@ fn setup_tray(
     add_tray_menu_item(&mut tray, "Add", &tx, Message::Add)?;
     add_tray_menu_item(&mut tray, "Rules", &tx, Message::Rules)?;
 
-    let active_tx = tx.clone();
-    let active = tray
-        .inner_mut()
-        .add_menu_item_with_id(&app_state.active_label(), move || {
-            if let Err(e) = active_tx.send(Message::Active) {
-                eprintln!("Failed to send Active message: {}", e);
-            }
-        })?;
+    let active = add_tray_menu_item_with_id(&mut tray, &app_state.active_label(), &tx, Message::Active)?;
 
     tray.inner_mut().add_separator()?;
 
-    let startup_tx = tx.clone();
-    let startup = tray
-        .inner_mut()
-        .add_menu_item_with_id(&app_state.startup_label(), move || {
-            if let Err(e) = startup_tx.send(Message::Startup) {
-                eprintln!("Failed to send Startup message: {}", e);
-            }
-        })?;
+    let startup =
+        add_tray_menu_item_with_id(&mut tray, &app_state.startup_label(), &tx, Message::Startup)?;
 
     tray.inner_mut().add_separator()?;
     add_tray_menu_item(&mut tray, "Quit", &tx, Message::Quit)?;
@@ -97,7 +85,24 @@ fn add_tray_menu_item(
     let tx_clone = tx.clone();
     tray.add_menu_item(label, move || {
         if let Err(e) = tx_clone.send(message.clone()) {
-            eprintln!("Failed to send {} message: {}", label, e);
+            error!(error = %e, label, "failed to send tray message");
+        }
+    })
+}
+
+/// Like [`add_tray_menu_item`], but for the self-relabeling items (`Active`,
+/// `Startup`): the label is dynamic and the backend-assigned id is returned so
+/// the caller can update the label later.
+fn add_tray_menu_item_with_id(
+    tray: &mut TrayItem,
+    label: &str,
+    tx: &UnboundedSender<Message>,
+    message: Message,
+) -> Result<u32, TIError> {
+    let tx = tx.clone();
+    tray.inner_mut().add_menu_item_with_id(label, move || {
+        if let Err(e) = tx.send(message.clone()) {
+            error!(error = %e, "failed to send tray message");
         }
     })
 }
@@ -123,13 +128,14 @@ fn message_loop(
     let (mut tray, menu_ids) = match setup_tray(tx, &app_state) {
         Ok(tray) => tray,
         Err(e) => {
-            eprintln!("Failed to set up tray: {e}");
+            error!(error = %e, "failed to set up tray");
             let _ = slint::quit_event_loop();
             return;
         }
     };
 
     while let Some(event) = rx.blocking_recv() {
+        trace!(?event, "tray event");
         match event {
             Message::Quit => {
                 if let Opacity::Compositor(compositor) = wm().opacity() {
@@ -153,7 +159,7 @@ fn message_loop(
                     .inner_mut()
                     .set_menu_item_label(&label, menu_ids.active)
                 {
-                    eprintln!("Failed to update active label: {e}");
+                    error!(error = %e, "failed to update active label");
                 }
             }
             Message::Startup => {
@@ -161,7 +167,7 @@ fn message_loop(
                     .inner_mut()
                     .set_menu_item_label(&app_state.toggle_autostart(), menu_ids.startup)
                 {
-                    eprintln!("Failed to update startup label: {e}");
+                    error!(error = %e, "failed to update startup label");
                 }
             }
         }

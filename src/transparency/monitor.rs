@@ -7,9 +7,16 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+use tracing::{debug, instrument};
 
-// Poll interval between monitor passes, in milliseconds.
+// Poll interval between monitor passes, in milliseconds. Used when the backend
+// has no window-change signal (Windows) and must poll to notice new windows.
 const MONITOR_DELAY: u64 = 120;
+
+// Slow periodic re-apply, in milliseconds, used when the backend *does* signal
+// window changes (X11): events drive the fast response, this only catches missed
+// events and externally-reset opacity, so it can be infrequent.
+const FALLBACK_DELAY: u64 = 2000;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 struct WindowHandleState {
@@ -63,13 +70,30 @@ impl WindowHandleState {
 /// or enabled-toggle change. Matches on window class (not title) so every window of
 /// an application is covered. Returns immediately on compositor backends, which
 /// enforce rules themselves.
+#[instrument(skip_all)]
 pub async fn monitor_windows(app_state: Arc<AppState>) {
     let op = match wm().opacity() {
         Opacity::Polling(op) => op,
-        Opacity::Compositor(_) => return,
+        Opacity::Compositor(_) => {
+            debug!("compositor backend enforces rules; polling monitor not started");
+            return;
+        }
     };
+    // If the backend can signal window open/close (X11), drive re-application off
+    // those events and keep only a slow periodic re-apply as a safety net.
+    // Without a signal (Windows), fall back to the original fixed polling tick.
+    let change_signal = op.window_change_signal();
+    let refresh_interval = Duration::from_millis(if change_signal.is_some() {
+        FALLBACK_DELAY
+    } else {
+        MONITOR_DELAY
+    });
+    debug!(
+        poll_ms = refresh_interval.as_millis() as u64,
+        event_driven = change_signal.is_some(),
+        "polling window monitor started"
+    );
 
-    let refresh_interval = Duration::from_millis(MONITOR_DELAY);
     let mut window_cache = HashMap::with_capacity(8);
 
     let mut config = app_state.get_config().await;
@@ -87,6 +111,11 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
             }
             Ok(new_config) = application_config.recv() => {
                 config = new_config;
+                // Apply immediately rather than waiting for the next tick, which
+                // can be seconds out on the event-driven path.
+                if is_enabled {
+                    apply_rules(op, &config, &mut window_cache);
+                }
             }
             Ok(state) = application_toggle.recv() => {
                 if state != is_enabled && is_enabled {
@@ -94,15 +123,40 @@ pub async fn monitor_windows(app_state: Arc<AppState>) {
                 }
                 is_enabled = state;
             }
-            _ = tokio::time::sleep(refresh_interval) => {
-                if is_enabled {
-                    refresh_window_cache(op, &config, &mut window_cache);
-                    update_windows(op, &config, &mut window_cache);
-                }
+            // Event-driven wake (X11): a window opened or closed. A no-op future
+            // when the backend has no signal. The `if is_enabled` guard means a
+            // disabled monitor parks here instead of waking.
+            _ = wait_for_change(&change_signal), if is_enabled => {
+                apply_rules(op, &config, &mut window_cache);
+            }
+            // Periodic re-apply: the primary tick on polling backends, a slow
+            // safety net on event-driven ones. Only armed while enabled.
+            _ = tokio::time::sleep(refresh_interval), if is_enabled => {
+                apply_rules(op, &config, &mut window_cache);
             }
             else => break
         }
     }
+}
+
+/// Resolve when the backend signals a possible window change, or never (when the
+/// backend has no signal) so that `select!` branch simply stays pending and the
+/// periodic tick drives re-application instead.
+async fn wait_for_change(signal: &Option<Arc<tokio::sync::Notify>>) {
+    match signal {
+        Some(notify) => notify.notified().await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// Refresh the window cache and push the current opacity to every matching window.
+fn apply_rules(
+    op: &dyn PollingOpacity,
+    config: &Config,
+    cache: &mut HashMap<String, Vec<WindowHandleState>>,
+) {
+    refresh_window_cache(op, config, cache);
+    update_windows(op, config, cache);
 }
 
 fn refresh_window_cache(
@@ -115,13 +169,13 @@ fn refresh_window_cache(
         let key = cfg.get_cache_key();
 
         if handles.is_empty() {
-            if let Some(val) = cache.get_mut(&key) {
+            if let Some(val) = cache.get_mut(key) {
                 val.clear();
             }
             continue;
         }
 
-        let states = cache.entry(key).or_default();
+        let states = cache.entry(key.to_owned()).or_default();
         states.retain(|state| handles.contains(&state.handle));
 
         let existing_handles: HashSet<_> = states.iter().map(|state| state.handle).collect();
@@ -141,7 +195,7 @@ fn update_windows(
     window_cache: &mut HashMap<String, Vec<WindowHandleState>>,
 ) {
     for rule in config.windows().values() {
-        if let Some(handle_states) = window_cache.get_mut(&rule.get_cache_key()) {
+        if let Some(handle_states) = window_cache.get_mut(rule.get_cache_key()) {
             for state in handle_states.iter_mut() {
                 state.update_window(wm, rule.get_alpha(), rule.is_enabled());
             }

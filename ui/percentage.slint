@@ -7,7 +7,7 @@ export global PercentageInput {
 
 export component PercentageWindow inherits Window {
     width: 300px;
-    height: 200px;
+    height: 250px;
     title: "Percentage Input";
     icon: @image-url("../icons/app-icon.png");
     always-on-top: true;
@@ -49,10 +49,11 @@ export component PercentageWindow inherits Window {
                     horizontal-alignment: TextHorizontalAlignment.right;
                     input-type: InputType.decimal;
                     changed text => {
+                        // Floor is enforced on submit (and in Rust via
+                        // `percent_to_alpha`) rather than per-keystroke, so the
+                        // user can still type values like "30" digit by digit.
                         if self.text.to-float() > 100 {
                             self.text = 100;
-                        } else if self.text.to-float() < 1 {
-                            self.text = 1;
                         }
                     }
                     key-pressed(event) => {
@@ -68,6 +69,14 @@ export component PercentageWindow inherits Window {
                     }
                 }
             }
+        }
+
+        Text {
+            font-family: "Arial";
+            font-size: 11px;
+            font-italic: true;
+            horizontal-alignment: TextHorizontalAlignment.left;
+            text: "Minimum opacity is 30%.";
         }
 
         VerticalLayout {
@@ -93,6 +102,11 @@ export component PercentageWindow inherits Window {
                 width: 80px;
                 height: 30px;
                 clicked => {
+                    // Snap below-minimum (and empty/invalid → 0) entries up to the
+                    // 30% floor so the value shown matches what's applied.
+                    if input.text.to-float() < 30 {
+                        input.text = 30;
+                    }
                     root.submit(input.text);
                 }
             }

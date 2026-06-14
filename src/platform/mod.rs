@@ -11,9 +11,11 @@
 
 use anyhow::Result;
 use std::{
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+use tracing::{debug, warn};
 
 #[cfg(unix)]
 mod kwin;
@@ -108,6 +110,16 @@ pub trait PollingOpacity: Send + Sync {
 
     /// Set a window's opacity. `alpha` is 0-255 where 255 is fully opaque.
     fn set_window_alpha(&self, handle: WindowHandle, alpha: u8) -> Result<()>;
+
+    /// An optional signal that fires when the set of open windows may have
+    /// changed, so the monitor can re-apply opacity in response to windows
+    /// opening/closing instead of polling on a fixed interval. `None` (the
+    /// default) means the backend has no such signal and the monitor falls back
+    /// to periodic polling. The signal is coalescing — bursts collapse into one
+    /// wake-up — and is paired with a slow periodic re-apply for robustness.
+    fn window_change_signal(&self) -> Option<Arc<tokio::sync::Notify>> {
+        None
+    }
 }
 
 /// Opacity enforced by the compositor: the full rule set is applied at once and
@@ -165,11 +177,17 @@ pub fn init() {
 fn init_unix() -> Box<dyn WindowManager> {
     if prefer_kwin() {
         match kwin::KWinManager::new() {
-            Ok(manager) => return Box::new(manager),
-            Err(e) => eprintln!("KWin backend unavailable ({e}); falling back to X11."),
+            Ok(manager) => {
+                debug!("selected KWin window backend");
+                return Box::new(manager);
+            }
+            Err(e) => {
+                warn!(error = %e, "KWin backend unavailable; falling back to X11")
+            }
         }
     }
 
+    debug!("selected X11 window backend");
     Box::new(x11::X11Manager::new().expect("Failed to connect to the X11 display server"))
 }
 
@@ -204,6 +222,11 @@ trait CursorPicker: Send + Sync {
     fn get_cursor_pos(&self) -> Result<CursorPoint>;
     /// Whether the left mouse button is currently pressed.
     fn is_left_click(&self) -> bool;
+    /// Whether the user has asked to cancel the pick (right-click or Escape), so
+    /// the shared loop can abort instead of forcing a selection.
+    fn is_cancel_requested(&self) -> bool {
+        false
+    }
     /// Identify the window at a screen point.
     fn get_window_info_at(&self, point: CursorPoint) -> Result<WindowInfo>;
     /// Whether the window at `point` belongs to an elevated/admin process.
@@ -233,6 +256,11 @@ fn run_cursor_pick(
 
     loop {
         let now = Instant::now();
+
+        // Right-click / Escape aborts the pick without forcing a selection.
+        if picker.is_cancel_requested() {
+            return Ok(None);
+        }
 
         if let Ok(pos) = picker.get_cursor_pos() {
             click_point = pos;
